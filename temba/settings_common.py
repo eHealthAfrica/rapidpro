@@ -179,6 +179,7 @@ INSTALLED_APPS = (
     'django.contrib.staticfiles',
     'django.contrib.humanize',
     'django.contrib.gis',
+    'django_extensions',
 
     # django sitemaps
     'django.contrib.sitemaps',
@@ -306,8 +307,8 @@ FIXTURE_DIRS = (os.path.join(PROJECT_DIR, '../fixtures'),)
 TESTFILES_DIR = os.path.join(PROJECT_DIR, '../testfiles')
 TEMPLATE_DIRS = (os.path.join(PROJECT_DIR, '../templates'),)
 STATICFILES_DIRS = (os.path.join(PROJECT_DIR, '../static'), os.path.join(PROJECT_DIR, '../media'), )
-STATIC_ROOT = os.path.join(PROJECT_DIR, '../sitestatic')
-COMPRESS_ROOT = os.path.join(PROJECT_DIR, '../sitestatic')
+STATIC_ROOT = os.environ.get('STATIC_DIR', os.path.join(PROJECT_DIR, '../sitestatic'))
+COMPRESS_ROOT = os.environ.get('STATIC_DIR', os.path.join(PROJECT_DIR, '../sitestatic'))
 MEDIA_ROOT = os.path.join(PROJECT_DIR, '../media')
 MEDIA_URL = "/media/"
 
@@ -900,8 +901,8 @@ CELERY_TASK_MAP = {
 import djcelery
 djcelery.setup_loader()
 
-REDIS_HOST = 'localhost'
-REDIS_PORT = 6379
+REDIS_HOST = os.environ.get('REDISHOST', 'localhost')
+REDIS_PORT = os.environ.get('REDISPORT', 6379)
 
 # we use a redis db of 10 for testing so that we maintain caches for dev
 REDIS_DB = 10 if TESTING else 15

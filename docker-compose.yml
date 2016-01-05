@@ -1,0 +1,24 @@
+db:
+  image: "mdillon/postgis"
+
+redis:
+    image: "redis"
+
+rapidpro:
+  build: .
+  volumes:
+      - ./:/code
+      - /tmp/static:/var/www/static
+  environment:
+      DBHOST: "db"
+      DBUSER: "postgres"
+      DBPASS: ""
+      REDISHOST: "redis"
+      STATIC_DIR: "/var/www/static/"
+  command: entrypoint.sh start 
+  ports:
+    - "5000:5000"
+    - "8000:8000"
+  links:
+    - db
+    - redis

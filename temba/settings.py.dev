@@ -37,11 +37,11 @@ CACHES = {
 DATABASES = {
     'default': {
         'ENGINE': 'django.contrib.gis.db.backends.postgis',
-        'NAME': 'temba',
-        'USER': 'temba',
-        'PASSWORD': 'temba',
-        'HOST': 'localhost',
-        'PORT': '',
+        'NAME': os.environ.get('DBNAME', 'temba'),
+        'USER': os.environ.get('DBUSER', 'temba'),
+        'PASSWORD': os.environ.get('DBPASS', 'temba'),
+        'HOST': os.environ.get('DBHOST', 'localhost'),
+        'PORT': os.environ.get('DBPORT', ''),
         'ATOMIC_REQUESTS': True,
         'OPTIONS': {
         }
