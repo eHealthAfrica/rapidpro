@@ -8,7 +8,6 @@ rapidpro:
   build: .
   volumes:
       - ./:/code
-      - /tmp/static:/var/www/static
   environment:
       DBHOST: "db"
       DBUSER: "postgres"
