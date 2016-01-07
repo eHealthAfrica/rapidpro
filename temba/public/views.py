@@ -191,3 +191,13 @@ class OrderStatus(View):
 
     def get(self, *args, **kwargs):
         return self.post(*args, **kwargs)
+
+
+class AWSHealth(View):
+
+    """
+    AWS Health Endpoint
+    """
+
+    def get(self, *args, **kwargs):
+        return HttpResponse(status=200)
