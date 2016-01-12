@@ -14,7 +14,7 @@ rapidpro:
       DBPASS: ""
       REDISHOST: "rapidproredis"
       STATIC_DIR: "/var/www/static/"
-  command: entrypoint.sh start 
+  command: start 
   ports:
     - "5000:5000"
     - "8000:8000"

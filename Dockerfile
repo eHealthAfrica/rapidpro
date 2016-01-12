@@ -25,6 +25,7 @@ RUN pip install -r /tmp/requirements.txt
 WORKDIR /code
 
 COPY ./ /code/
+RUN ln -sf /code/temba/settings.py.docker /code/temba/settings.py
 
 RUN mkdir -p /var/log/rapidpro
 
@@ -43,4 +44,5 @@ RUN mkdir -p /var/www/static && chmod -R 777 /var/www/static/ && chown -R www-da
 
 EXPOSE 8000
 
-CMD ["entrypoint.sh", "start"]
+ENTRYPOINT ["entrypoint.sh"]
+CMD ["start"]
