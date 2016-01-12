@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/eHealthAfrica/rapidpro.svg?branch=master)](https://travis-ci.org/eHealthAfrica/rapidpro.svg)
+
 # RapidPro  
 
 RapidPro is a hosted service for visually building interactive messaging applications.
