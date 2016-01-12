@@ -1,7 +1,7 @@
-db:
+rapidprodb:
   image: "mdillon/postgis"
 
-redis:
+rapidproredis:
     image: "redis"
 
 rapidpro:
@@ -9,15 +9,15 @@ rapidpro:
   volumes:
       - ./:/code
   environment:
-      DBHOST: "db"
-      DBUSER: "postgres"
-      DBPASS: ""
-      REDISHOST: "redis"
-      STATIC_DIR: "/var/www/static/"
+      dbhost: "rapidprodb"
+      dbuser: "postgres"
+      dbpass: ""
+      redishost: "rapidproredis"
+      static_dir: "/var/www/static/"
   command: entrypoint.sh start 
   ports:
     - "5000:5000"
     - "8000:8000"
   links:
-    - db
-    - redis
+    - rapidprodb
+    - rapidproredis

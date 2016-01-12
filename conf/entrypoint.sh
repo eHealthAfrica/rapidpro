@@ -12,13 +12,15 @@ show_help() {
 }
 
 setup_db() {
-    psql -U postgres -h db template_postgis -c 'CREATE EXTENSION hstore;'
-    psql -U postgres -h db template1 -c 'CREATE EXTENSION hstore;'
-    psql -U postgres -h db template_postgis -c 'CREATE EXTENSION postgis;'
-    psql -U postgres -h db template1 -c 'CREATE EXTENSION postgis;'
+    set +e
+    psql -U postgres -h rapidprodb template_postgis -c 'CREATE EXTENSION hstore;'
+    psql -U postgres -h rapidprodb template1 -c 'CREATE EXTENSION hstore;'
+    psql -U postgres -h rapidprodb template_postgis -c 'CREATE EXTENSION postgis;'
+    psql -U postgres -h rapidprodb template1 -c 'CREATE EXTENSION postgis;'
     cd /code
-    python manage.py sqlcreate | psql -U postgres -h db
+    python manage.py sqlcreate | psql -U postgres -h rapidprodb
     python manage.py migrate
+    set -e
 }
 
 case "$1" in
@@ -27,7 +29,6 @@ case "$1" in
         python manage.py "${@:2}"
     ;;
     setupdb )
-        set +e
         setup_db
     ;;
     start )
