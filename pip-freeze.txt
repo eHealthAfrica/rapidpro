@@ -102,3 +102,4 @@ plivo==0.10.1
 django-extensions==1.5.9
 supervisor==3.2
 antlr4-python2-runtime==4.5.2
+django-mptt==0.7.4
