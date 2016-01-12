@@ -13,12 +13,12 @@ show_help() {
 
 setup_db() {
     set +e
-    psql -U postgres -h rapidprodb template_postgis -c 'CREATE EXTENSION hstore;'
-    psql -U postgres -h rapidprodb template1 -c 'CREATE EXTENSION hstore;'
-    psql -U postgres -h rapidprodb template_postgis -c 'CREATE EXTENSION postgis;'
-    psql -U postgres -h rapidprodb template1 -c 'CREATE EXTENSION postgis;'
+    psql -U $DBUSER -h $DBHOST template_postgis -c 'CREATE EXTENSION hstore;'
+    psql -U $DBUSER -h $DBHOST template1 -c 'CREATE EXTENSION hstore;'
+    psql -U $DBUSER -h $DBHOST template_postgis -c 'CREATE EXTENSION postgis;'
+    psql -U $DBUSER -h $DBHOST template1 -c 'CREATE EXTENSION postgis;'
     cd /code
-    python manage.py sqlcreate | psql -U postgres -h rapidprodb
+    python manage.py sqlcreate | psql -U $DBUSER -h $DBHOST
     python manage.py migrate
     set -e
 }

@@ -9,11 +9,11 @@ rapidpro:
   volumes:
       - ./:/code
   environment:
-      dbhost: "rapidprodb"
-      dbuser: "postgres"
-      dbpass: ""
-      redishost: "rapidproredis"
-      static_dir: "/var/www/static/"
+      DBHOST: "rapidprodb"
+      DBUSER: "postgres"
+      DBPASS: ""
+      REDISHOST: "rapidproredis"
+      STATIC_DIR: "/var/www/static/"
   command: entrypoint.sh start 
   ports:
     - "5000:5000"

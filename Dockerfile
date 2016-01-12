@@ -24,7 +24,7 @@ RUN pip install -r /tmp/requirements.txt
 
 WORKDIR /code
 
-ADD ./ /code/
+COPY ./ /code/
 
 RUN mkdir -p /var/log/rapidpro
 
