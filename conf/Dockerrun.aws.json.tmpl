@@ -1,0 +1,36 @@
+{
+  "AWSEBDockerrunVersion": 2,
+  "containerDefinitions": [
+    {
+      "name": "rapidpro-app",
+      "image": "387526361725.dkr.ecr.us-east-1.amazonaws.com/rapidpro:{{ tag }}",
+      "essential": true,
+      "memory": 2000,
+      "portMappings": [
+        {
+          "hostPort": 80,
+          "containerPort": 5000
+        }
+      ],
+      "environment": [
+        {
+          "name": "STATIC_DIR",
+          "value": "/var/www/static"
+        },
+        {
+            "name": "REDISHOST",
+            "value": "rapidproredis"
+        }
+      ],
+      "links": [
+          "rapidproredis"
+      ]
+    },
+    {
+      "name": "rapidproredis",
+      "image": "redis",
+      "essential": true,
+      "memory": 1000
+    }
+  ]
+}

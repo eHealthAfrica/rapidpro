@@ -14,8 +14,10 @@ cache:
 
 install:
     - pip install docker-compose
+    - pip install -r pip-deploy.txt
 
 before_script:
+  - fab stage prebuild
   - docker-compose up -d rapidprodb
   - docker-compose up -d rapidproredis
   - docker-compose build rapidpro

@@ -106,3 +106,7 @@ docs/_build/
 # PyBuilder
 target/
 textit
+
+# Deployment data
+conf/Dockerrun.aws.json
+conf/nginx.rapidpro.conf
