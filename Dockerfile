@@ -39,7 +39,6 @@ RUN ln -sf /usr/bin/nodejs /usr/bin/node
 
 ADD conf/nginx.rapidpro.conf /etc/nginx/sites-enabled/default
 
-RUN chmod 666 /code/parser.out
 RUN mkdir -p /var/www/static && chmod -R 777 /var/www/static/ && chown -R www-data:www-data /var/www/static
 
 EXPOSE 5000
