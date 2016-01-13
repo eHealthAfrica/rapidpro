@@ -25,7 +25,7 @@ RUN pip install -r /tmp/requirements.txt
 WORKDIR /code
 
 COPY ./ /code/
-RUN ln -sf /code/temba/settings.py.docker /code/temba/settings.py
+RUN cp /code/temba/settings.py.docker /code/temba/settings.py
 
 RUN mkdir -p /var/log/rapidpro
 
@@ -42,6 +42,7 @@ ADD conf/nginx.rapidpro.conf /etc/nginx/sites-enabled/default
 RUN chmod 666 /code/parser.out
 RUN mkdir -p /var/www/static && chmod -R 777 /var/www/static/ && chown -R www-data:www-data /var/www/static
 
+EXPOSE 5000
 EXPOSE 8000
 
 ENTRYPOINT ["entrypoint.sh"]

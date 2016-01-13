@@ -7,11 +7,13 @@ rapidproredis:
 rapidpro:
   build: .
   volumes:
-      - ./:/code
+      - .:/code
   environment:
-      DBHOST: "rapidprodb"
-      DBUSER: "postgres"
-      DBPASS: ""
+      RDS_HOSTNAME: "rapidprodb"
+      RDS_USERNAME: "postgres"
+      RDS_PASSWORD: ""
+      RDS_PORT: ""
+      RDS_DB_NAME: "rapidpro"
       REDISHOST: "rapidproredis"
       STATIC_DIR: "/var/www/static/"
   command: start 

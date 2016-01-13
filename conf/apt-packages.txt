@@ -18,3 +18,6 @@ uwsgi
 uwsgi-plugin-python
 npm
 nginx
+curl
+vim
+tcpdump
