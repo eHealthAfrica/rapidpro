@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-TAG=$(git tag | sort -r | tail -1)
+TAG=$(git describe --tags $(git rev-parse HEAD))
 BRANCH=$(git branch | grep "^*" | cut -d" " -f2)
 
 if [ -z "$TAG" ]; then
