@@ -19,8 +19,8 @@ setup_local_db() {
     psql -U $RDS_USERNAME -h $RDS_HOSTNAME template1 -c 'CREATE EXTENSION postgis;'
     cd /code
     python manage.py sqlcreate | psql -U $RDS_USERNAME -h $RDS_HOSTNAME
-    python manage.py migrate
     set -e
+    python manage.py migrate
 }
 
 setup_prod_db() {
@@ -28,8 +28,8 @@ setup_prod_db() {
     PGPASSWORD=$RDS_PASSWORD psql -U $RDS_USERNAME -h $RDS_HOSTNAME $RDS_DB_NAME -c 'CREATE EXTENSION hstore;'
     PGPASSWORD=$RDS_PASSWORD psql -U $RDS_USERNAME -h $RDS_HOSTNAME $RDS_DB_NAME -c 'CREATE EXTENSION postgis;'
     cd /code
-    python manage.py migrate
     set -e
+    python manage.py migrate
 }
 
 case "$1" in
