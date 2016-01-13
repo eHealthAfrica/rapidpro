@@ -42,8 +42,6 @@ media/tmp
 
 
 # External projects
-fabconfig.py
-fabfile.py
 deploy
 config
 Flows.ipynb

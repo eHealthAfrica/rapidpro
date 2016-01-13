@@ -23,4 +23,7 @@ before_script:
   - docker-compose build rapidpro
 
 script:
-  - docker-compose run rapidpro setupdb
+  - docker-compose run rapidpro setuplocaldb
+
+after_success:
+  - travis_success.sh
