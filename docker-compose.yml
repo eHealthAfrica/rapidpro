@@ -6,8 +6,6 @@ rapidproredis:
 
 rapidpro:
   build: .
-  volumes:
-      - .:/code
   environment:
       RDS_HOSTNAME: "rapidprodb"
       RDS_USERNAME: "postgres"
