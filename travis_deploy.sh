@@ -6,6 +6,10 @@ TAG=$TRAVIS_TAG
 BRANCH=$TRAVIS_BRANCH
 PR=$TRAVIS_PULL_REQUEST
 
+echo $TAG
+echo $BRANCH
+echo $PR
+
 if [ -z $TAG ]
 then
     echo "No tags, tagging as: latest"
