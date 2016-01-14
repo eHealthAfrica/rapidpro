@@ -1,0 +1,13 @@
+branch-defaults:
+  dockerize:
+    environment: rapidproMaps-stage
+global:
+  application_name: rapidpro-maps
+  default_ec2_keyname: aws-deploy
+  default_platform: 64bit Amazon Linux 2015.09 v2.0.6 running Multi-container Docker
+    1.7.1 (Generic)
+  default_region: eu-central-1
+  profile: null
+  sc: git
+deploy:
+    artifact: conf/Dockerrun.aws.json

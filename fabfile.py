@@ -1,5 +1,7 @@
+import os
+
 from fabric.colors import green
-from fabric.api import local, abort
+from fabric.api import local
 from fabconfig import env, dev, stage  # noqa
 
 from jinja2 import Environment, FileSystemLoader
@@ -25,17 +27,8 @@ def notify(msg):
     print green('')
 
 
-def getLatestTag():
-    local('git fetch --tags')
-    tag = local('git tag | sort -r | tail -1', capture=True)
-    if tag == "" or tag is None:
-        abort("No Tags Found!")
-    return tag
-
-
-def createDockerrunFile():
+def createDockerrunFile(tag):
     template = templateEnv.get_template('Dockerrun.aws.json.tmpl')
-    tag = getLatestTag()
     fname = "conf/Dockerrun.aws.json"
     with open(fname, 'w') as f:
         data = template.render(tag=tag)
@@ -56,5 +49,5 @@ def prebuild():
     createNginxConfig()
 
 
-def deploy():
-    createDockerrunFile()
+def preparedeploy():
+    createDockerrunFile(os.environ.get("TRAVIS_TAG", "latest"))

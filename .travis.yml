@@ -26,4 +26,4 @@ script:
   - docker-compose run rapidpro setuplocaldb
 
 after_success:
-  ./travis_success.sh
+  ./travis_deploy.sh

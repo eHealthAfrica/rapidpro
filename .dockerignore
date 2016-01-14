@@ -1,1 +1,6 @@
 *.pyc
+fabfile.py
+fabconfig.py
+travis_deploy.sh
+.elasticbeanstalk/*
+.travis.yml
