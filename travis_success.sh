@@ -2,8 +2,11 @@
 set -e
 set -x
 
-TAG=$(git describe --tags $(git rev-parse HEAD))
-BRANCH=$(git branch | grep "^*" | cut -d" " -f2)
+TAG=$TRAVIS_TAG
+BRANCH=$TRAVIS_BRANCH
+PR=$TRAVIS_PULL_REQUEST
+
+echo $PR
 
 if [ -z $TAG ]
 then
