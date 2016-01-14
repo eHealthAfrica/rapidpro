@@ -28,6 +28,7 @@ then
     # we never want our elastic beanstalk to use tag "latest" so if this is an
     # un-tagged build, use the commit hash
     if [ $TAG = "latest" ]
+    then
         TAG=$TRAVIS_COMMIT
     fi
     eb deploy -l $TAG
