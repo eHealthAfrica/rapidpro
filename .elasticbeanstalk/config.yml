@@ -1,4 +1,6 @@
 branch-defaults:
+  default:
+    environment: rapidproMaps-stage
   feature/nathan/dockerize:
     environment: rapidproMaps-stage
   master:
