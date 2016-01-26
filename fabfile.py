@@ -1,4 +1,5 @@
 import os
+import zipfile
 
 from fabric.colors import green
 from fabric.api import local
@@ -45,9 +46,24 @@ def createNginxConfig():
     notify("Create nginx.rapidpro.conf with hostname: %(hostname)s" % env)
 
 
+def _zipdir(path, ziph):
+    # ziph is zipfile handle
+    for root, dirs, files in os.walk(path):
+        for file in files:
+            ziph.write(os.path.join(root, file))
+
+
+def createZip():
+    zipf = zipfile.ZipFile('conf/deploy.zip', 'w')
+    _zipdir('.ebextensions/', zipf)
+    zipf.write('conf/Dockerrun.aws.json', arcname='Dockerrun.aws.json')
+    zipf.close()
+
+
 def prebuild():
     createNginxConfig()
 
 
 def preparedeploy():
     createDockerrunFile(os.environ.get("TRAVIS_TAG", "latest"))
+    createZip()

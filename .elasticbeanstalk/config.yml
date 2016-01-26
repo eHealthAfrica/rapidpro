@@ -14,4 +14,4 @@ global:
   profile: null
   sc: git
 deploy:
-    artifact: conf/Dockerrun.aws.json
+    artifact: conf/deploy.zip
