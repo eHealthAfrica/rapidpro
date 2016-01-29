@@ -11,19 +11,21 @@ from redis_cache import get_redis_connection
 from temba.locations.models import AdminBoundary
 from temba.orgs.models import Org
 from temba.utils import format_decimal, get_dict_from_cursor, dict_to_json, json_to_dict
-from stop_words import get_stop_words
+from stop_words import safe_get_stop_words
 
 TEXT = 'T'
 DECIMAL = 'N'
 DATETIME = 'D'
 STATE = 'S'
 DISTRICT = 'I'
+WARD = 'W'
 
 VALUE_TYPE_CHOICES = ((TEXT, "Text"),
                       (DECIMAL, "Numeric"),
                       (DATETIME, "Date & Time"),
                       (STATE, "State"),
-                      (DISTRICT, "District"))
+                      (DISTRICT, "District"),
+                      (WARD, "Ward"))
 
 VALUE_SUMMARY_CACHE_KEY = 'value_summary'
 CONTACT_KEY = 'vsd::vsc%d'
@@ -264,7 +266,7 @@ class Value(models.Model):
                 categories, set_contacts = cls._filtered_values_to_categories(contacts, values, 'date_value',
                                                                               return_contacts=return_contacts)
 
-            elif contact_field.value_type in [STATE, DISTRICT]:
+            elif contact_field.value_type in [STATE, DISTRICT, WARD]:
                 values = values.values('location_value__osm_id', 'contact')
                 categories, set_contacts = cls._filtered_values_to_categories(contacts, values, 'location_value__osm_id',
                                                                               return_contacts=return_contacts)
@@ -391,7 +393,7 @@ class Value(models.Model):
         if cached is not None:
             try:
                 return json_to_dict(cached)
-            except:
+            except Exception:
                 # failed decoding, oh well, go calculate it instead
                 pass
 
@@ -442,8 +444,8 @@ class Value(models.Model):
                 field = ContactField.get_by_label(org, segment['location'])
 
                 # make sure they are segmenting on a location type that makes sense
-                if field.value_type not in [STATE, DISTRICT]:
-                    raise ValueError(_("Cannot segment on location for field that is not a State or District type"))
+                if field.value_type not in [STATE, DISTRICT, WARD]:
+                    raise ValueError(_("Cannot segment on location for field that is not a State or District or Ward type"))
 
                 # make sure our org has a country for location based responses
                 if not org.country:
@@ -464,9 +466,12 @@ class Value(models.Model):
                 if not parent_osm_id and field.value_type == DISTRICT:
                     raise ValueError(_("You must specify a parent state to segment results by district"))
 
+                if not parent_osm_id and field.value_type == WARD:
+                    raise ValueError(_("You must specify a parent state to segment results by ward"))
+
                 # if this is a district, we can speed things up by only including those districts in our parent, build
                 # the filter for that
-                if parent and field.value_type == DISTRICT:
+                if parent and (field.value_type == DISTRICT or field.value_type == WARD):
                     location_filters = [filters, dict(location=field.pk, boundary=[b.osm_id for b in boundaries])]
                 else:
                     location_filters = filters
@@ -531,7 +536,15 @@ class Value(models.Model):
                 cursor.execute(custom_sql)
                 unclean_categories = get_dict_from_cursor(cursor)
                 categories = []
-                ignore_words = get_stop_words('english')
+
+                org_languages = [lang.name.lower() for lang in org.languages.filter(orgs=None).distinct()]
+
+                if 'english' not in org_languages:
+                    org_languages.append('english')
+
+                ignore_words = []
+                for lang in org_languages:
+                    ignore_words += safe_get_stop_words(lang)
 
                 for category in unclean_categories:
                     if len(category['label']) > 1 and category['label'] not in ignore_words and len(categories) < 100:

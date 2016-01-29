@@ -461,6 +461,7 @@ app.factory 'Flow', ['$rootScope', '$window', '$http', '$timeout', '$interval', 
         { type:'phone', name: 'Has a phone', verbose_name:'has a phone number', operands: 0, voice:true }
         { type:'state', name: 'Has a state', verbose_name:'has a state', operands: 0 }
         { type:'district', name: 'Has a district', verbose_name:'has a district', operands: 1, auto_complete: true, placeholder:'@flow.state' }
+        { type:'ward', name: 'Has a ward', verbose_name:'has a ward', operands: 2, operand_required: false,  auto_complete: true, }
         { type:'regex', name: 'Regex', verbose_name:'matches regex', operands: 1, voice:true, localized:true }
         { type:'true', name: 'Other', verbose_name:'contains anything', operands: 0 }
       ]
@@ -649,6 +650,9 @@ app.factory 'Flow', ['$rootScope', '$window', '$http', '$timeout', '$interval', 
           @detectLoop(node.uuid, node.destination, path)
 
     isConnectionAllowed: (sourceId, targetId) ->
+      return @getConnectionError(sourceId, targetId) == null
+
+    getConnectionError: (sourceId, targetId) ->
 
       source = sourceId.split('_')[0]
       path = [ source ]
@@ -657,14 +661,14 @@ app.factory 'Flow', ['$rootScope', '$window', '$http', '$timeout', '$interval', 
       targetNode = @getNode(targetId)
 
       if @isPausingRuleset(sourceNode) and @isPausingRuleset(targetNode)
-        return false
+        return 'The flow cannot wait for two consecutive responses from the contact. Instead, send them a message between waiting for a response.'
 
       try
         @detectLoop(source, targetId, path)
       catch e
         $log.debug(e.message)
-        return false
-      return true
+        return 'Connecting these together would create an infinite loop in your flow. To connect these, make sure to pass it through an action that waits for a response.'
+      return null
 
     # translates a string into a slug
     slugify: (label) ->
@@ -678,13 +682,15 @@ app.factory 'Flow', ['$rootScope', '$window', '$http', '$timeout', '$interval', 
       flowFields = {}
       if @flow
         for ruleset in @flow.rule_sets
-          if ruleset.uuid != excludeRuleset?.uuid
-            flowFields[@slugify(ruleset.label)] = ruleset.label
+          flowFields[@slugify(ruleset.label)] = [ruleset.uuid, ruleset.label]
 
       # as an array
       result = []
-      for id, name of flowFields
-        result.push({ id: id, text: name})
+      for id, details of flowFields
+        uuid = details[0]
+        label = details[1]
+        if uuid != excludeRuleset?.uuid
+          result.push({ id: id, text: label})
 
       return result
 
@@ -953,6 +959,10 @@ app.factory 'Flow', ['$rootScope', '$window', '$http', '$timeout', '$interval', 
 
     replaceRuleset: (ruleset, markDirty=true) ->
 
+      # make sure we don't have a cached field names
+      ruleset._flowFieldName = null
+      ruleset._contactFieldName = null
+
       # find the ruleset we are replacing by uuid
       found = false
 
@@ -1072,6 +1082,10 @@ app.factory 'Flow', ['$rootScope', '$window', '$http', '$timeout', '$interval', 
       idx = actionset.actions.indexOf(action)
       actionset.actions.splice(idx, 1)
       actionset.actions.splice(idx-1, 0, action)
+
+      # clear our last action marker
+      actionset._lastActionMissingTranslation = null
+
       @markDirty()
 
 
@@ -1143,6 +1157,8 @@ app.factory 'Flow', ['$rootScope', '$window', '$http', '$timeout', '$interval', 
       return action.type != 'flow'
 
     saveAction: (actionset, action) ->
+
+      actionset._lastActionMissingTranslation = null
 
       found = false
       lastAction = null
