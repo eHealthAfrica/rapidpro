@@ -58,7 +58,7 @@ INTERNAL_IPS = ('127.0.0.1',)
 #-----------------------------------------------------------------------------------
 # Load nose in development
 #-----------------------------------------------------------------------------------
-INSTALLED_APPS = INSTALLED_APPS + ('django_nose', 'storages')
+INSTALLED_APPS = INSTALLED_APPS + ('storages',)
 # INSTALLED_APPS = INSTALLED_APPS + ('debug_toolbar', )
 
 #-----------------------------------------------------------------------------------
