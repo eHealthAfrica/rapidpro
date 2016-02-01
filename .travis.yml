@@ -25,9 +25,9 @@ install:
 - pip install --upgrade pip
 - pip --version
 - pip install -r pip-freeze.txt --upgrade
+- pip install -r pip-deploy.txt
 - pip install coveralls
 - npm install
-- pip install -r pip-deploy.txt
 
 before_script:
   - fab stage prebuild
