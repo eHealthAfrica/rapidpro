@@ -1,5 +1,11 @@
-from .views import *
+from __future__ import unicode_literals
+
+from django.conf.urls import patterns
+from django.views.decorators.csrf import csrf_exempt
 from .sitemaps import PublicViewSitemap, VideoSitemap
+from .views import LeadCRUDL, LeadViewer, VideoCRUDL, AWSHealth
+from .views import IndexView, Blog, Welcome, Deploy, Privacy, WelcomeRedirect, OrderStatus, GenerateCoupon
+
 
 sitemaps = {
     'public': PublicViewSitemap,
@@ -11,7 +17,6 @@ urlpatterns = patterns('',
                        (r'^sitemap\.xml$', 'django.contrib.sitemaps.views.sitemap',
                         {'sitemaps': sitemaps}, 'public.sitemaps'),
                        (r'^blog/$', Blog.as_view(), {}, 'public.public_blog'),
-
 
                        (r'^welcome/$', Welcome.as_view(), {}, 'public.public_welcome'),
                        (r'^deploy/$', Deploy.as_view(), {}, 'public.public_deploy'),

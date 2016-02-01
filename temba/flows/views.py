@@ -99,6 +99,7 @@ class FlowActionForm(BaseActionForm):
                        ('restore', _("Restore Flows")))
 
     OBJECT_CLASS = Flow
+    OBJECT_CLASS_MANAGER = 'objects'
     LABEL_CLASS = FlowLabel
     LABEL_CLASS_MANAGER = 'objects'
     HAS_IS_ACTIVE = True
@@ -149,7 +150,7 @@ class RuleCRUDL(SmartCRUDL):
     class Choropleth(OrgPermsMixin, SmartReadView):
 
         def get_context_data(self, **kwargs):
-            from temba.values.models import Value, STATE, DISTRICT
+            from temba.values.models import Value, STATE, DISTRICT, WARD
             from temba.locations.models import AdminBoundary
 
             context = dict()
@@ -167,11 +168,14 @@ class RuleCRUDL(SmartCRUDL):
             # figure out our state and district contact fields
             state_field = ContactField.objects.filter(org=org, value_type=STATE).first()
             district_field = ContactField.objects.filter(org=org, value_type=DISTRICT).first()
+            ward_field = ContactField.objects.filter(org=org, value_type=WARD).first()
 
             # by default, segment by states
             segment = dict(location=state_field.label)
             if parent.level == 1:
                 segment = dict(location=district_field.label, parent=parent.osm_id)
+            if parent.level == 2:
+                segment = dict(location=ward_field.label, parent=parent.osm_id)
 
             results = Value.get_value_summary(ruleset=ruleset, filters=filters, segment=segment)
 
@@ -472,7 +476,7 @@ class FlowCRUDL(SmartCRUDL):
                     path = 'recordings/%d/%d' % (object.org.pk, object.pk)
                     if default_storage.exists(path):
                         default_storage.delete(path)
-                except:
+                except Exception:
                     pass
 
     class Copy(OrgObjPermsMixin, SmartUpdateView):
@@ -600,6 +604,7 @@ class FlowCRUDL(SmartCRUDL):
 
     class Archived(BaseList):
         actions = ('restore',)
+        default_order = ('-created_on',)
 
         def derive_queryset(self, *args, **kwargs):
             return super(FlowCRUDL.Archived, self).derive_queryset(*args, **kwargs).filter(is_active=True, is_archived=True)
@@ -943,14 +948,14 @@ class FlowCRUDL(SmartCRUDL):
 
                 runs = FlowRun.objects.filter(flow=self.object).exclude(contact__is_test=True)
 
-                if 'sSearch' in self.request.REQUEST:
-                    query = self.request.REQUEST['sSearch']
+                query = self.request.REQUEST.get('sSearch', None)
+                if query:
                     if org.is_anon:
                         # try casting our query to an int if they are querying by contact id
                         query_int = -1
                         try:
                             query_int = int(query)
-                        except:
+                        except Exception:
                             pass
 
                         runs = runs.filter(Q(contact__name__icontains=query) | Q(contact__id=query_int))
@@ -1036,7 +1041,7 @@ class FlowCRUDL(SmartCRUDL):
                         runs = list(contact.runs.filter(flow=self.object).order_by('-created_on'))
                         for run in runs:
                             # step_uuid__in=step_uuids
-                            run.__dict__['messages'] = list(Msg.objects.filter(steps__run=run).order_by('created_on'))
+                            run.__dict__['messages'] = list(Msg.all_messages.filter(steps__run=run).order_by('created_on'))
                         context['runs'] = runs
                         context['contact'] = contact
 
@@ -1080,7 +1085,7 @@ class FlowCRUDL(SmartCRUDL):
                             duration=call.get_duration(),
                             number=call.contact.raw_tel())
 
-                messages = Msg.objects.filter(contact=Contact.get_test_contact(self.request.user)).order_by('created_on')
+                messages = Msg.current_messages.filter(contact=Contact.get_test_contact(self.request.user)).order_by('created_on')
                 action_logs = list(ActionLog.objects.filter(run__flow=flow, run__contact__is_test=True).order_by('created_on'))
 
                 messages_and_logs = chain(messages, action_logs)
@@ -1137,7 +1142,7 @@ class FlowCRUDL(SmartCRUDL):
                 steps = FlowStep.objects.filter(run__in=runs)
 
                 ActionLog.objects.filter(run__in=runs).delete()
-                Msg.objects.filter(contact=test_contact).delete()
+                Msg.current_messages.filter(contact=test_contact).delete()
                 IVRCall.objects.filter(contact=test_contact).delete()
 
                 runs.delete()
@@ -1167,7 +1172,7 @@ class FlowCRUDL(SmartCRUDL):
                     import traceback; traceback.print_exc(e)
                     return build_json_response(dict(status="error", description="Error creating message: %s" % str(e)), status=400)
 
-            messages = Msg.objects.filter(contact=test_contact).order_by('pk', 'created_on')
+            messages = Msg.current_messages.filter(contact=test_contact).order_by('pk', 'created_on')
             action_logs = ActionLog.objects.filter(run__contact=test_contact).order_by('pk', 'created_on')
 
             messages_and_logs = chain(messages, action_logs)
