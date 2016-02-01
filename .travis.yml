@@ -22,12 +22,7 @@ cache:
     - $HOME/.cache/pip
 
 install:
-- pip install --upgrade pip
-- pip --version
-- pip install -r pip-freeze.txt --upgrade
-- pip install coveralls
-- npm install
-- pip install -r pip-deploy.txt
+  - pip install -r pip-deploy.txt
 
 before_script:
   - fab stage prebuild
@@ -36,14 +31,7 @@ before_script:
   - docker-compose build rapidpro
 
 script:
-- node_modules/karma/bin/karma start karma.conf.coffee --single-run --browsers PhantomJS
-- coverage run manage.py test --noinput --verbosity=2
 - docker-compose run rapidpro setuplocaldb
 
 after_success:
-- coverage report -i
-- coveralls
   ./travis_deploy.sh
-notifications:
-  slack:
-    secure: b2/RUpO6gWEDgOI/sEWsjt2cVnwp3hOWUSMnHpVuY0pZBzzrICZ5MeqEulwCoKy+8ohaCmYUL42RzJwq1v2FITo5YDeiLrqmrkYR0Zieel/Vey+o6sBdR6y2yPvWjBmydHNvfUyMshT5iqEn4bS6bjhm57F0rLJX7mTqp19A+68=
