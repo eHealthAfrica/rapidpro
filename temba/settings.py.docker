@@ -15,8 +15,8 @@ import logging
 #-----------------------------------------------------------------------------------
 # Used when creating callbacks for Twilio, Nexmo etc..
 #-----------------------------------------------------------------------------------
-HOSTNAME = 'rapidpro.ngrok.com'
-TEMBA_HOST = 'rapidpro.ngrok.com'
+HOSTNAME = 'rapidpro.ehealth.org.ng'
+TEMBA_HOST = 'rapidpro.ehealth.org.ng'
 
 #-----------------------------------------------------------------------------------
 # Redis & Cache Configuration (we expect a Redis instance on localhost)
