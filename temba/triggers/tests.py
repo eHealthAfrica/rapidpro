@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-
 from __future__ import unicode_literals
 
 import time
@@ -12,7 +11,7 @@ from temba.contacts.models import TEL_SCHEME
 from temba.flows.models import Flow, ActionSet, FlowRun
 from temba.schedules.models import Schedule
 from temba.msgs.models import Msg, INCOMING, Call
-from temba.channels.models import SEND, CALL, ANSWER, RECEIVE
+from temba.channels.models import CALL, ANSWER
 from temba.tests import TembaTest
 from .models import Trigger
 from temba.triggers.views import DefaultTriggerForm, RegisterTriggerForm
@@ -109,7 +108,6 @@ class TriggerTest(TembaTest):
         self.assertContains(response, 'startkeyword')
         self.assertEquals(1, Trigger.objects.filter(keyword="startkeyword", is_archived=False).count())
         self.assertFalse(other_trigger.pk == Trigger.objects.filter(keyword="startkeyword", is_archived=False)[0].pk)
-
 
         self.contact = self.create_contact('Eric', '+250788382382')
         self.contact2 = self.create_contact('Nic', '+250788383383')
@@ -215,7 +213,6 @@ class TriggerTest(TembaTest):
 
         tommorrow = now + timedelta(days=1)
         tommorrow_stamp = time.mktime(tommorrow.timetuple())
-
 
         post_data = dict()
         post_data['omnibox'] = "g-%d,c-%d" % (linkin_park.pk, stromae.pk)
@@ -366,7 +363,6 @@ class TriggerTest(TembaTest):
     def test_join_group_trigger(self):
 
         self.login(self.admin)
-
         group = self.create_group(name='Chat', contacts=[])
 
         # create a trigger that sets up a group join flow
@@ -378,11 +374,14 @@ class TriggerTest(TembaTest):
 
         # check that our trigger exists and shows our group
         trigger = Trigger.objects.get(keyword='join', flow=flow)
-        self.assertEquals('Join Chat', trigger.flow.name)
+        self.assertEqual(trigger.flow.name, 'Join Chat')
+
+        # the org has no language, so it should be a 'base' flow
+        self.assertEqual(flow.base_language, 'base')
 
         # now let's try it out
-        contact = self.create_contact('Ben', '+250788382382')
-        msg = self.create_msg(direction=INCOMING, contact=contact, text="join")
+        contact = self.create_contact('macklemore', '+250788382382')
+        msg = self.create_msg(direction=INCOMING, contact=contact, text="join ben haggerty")
         self.assertIsNone(msg.msg_type)
 
         self.assertTrue(Trigger.find_and_handle(msg))
@@ -390,11 +389,14 @@ class TriggerTest(TembaTest):
         self.assertEqual(msg.msg_type, 'F')
         self.assertEqual(Trigger.objects.get(pk=trigger.pk).trigger_count, 1)
 
+        contact.refresh_from_db()
+        self.assertEqual('Ben Haggerty', contact.name)
+
         # we should be in the group now
-        self.assertEqual(set(contact.user_groups.all()), {group})
+        self.assertEqual({group}, set(contact.user_groups.all()))
 
         # and have one incoming and one outgoing message
-        self.assertEquals(2, contact.msgs.count())
+        self.assertEqual(2, contact.msgs.count())
 
         # deleting our contact group should leave our triggers and flows since the group can be recreated
         self.client.post(reverse("contacts.contactgroup_delete", args=[group.pk]))
@@ -409,12 +411,15 @@ class TriggerTest(TembaTest):
         group = self.create_group(name='Lang Group', contacts=[])
         post_data = dict(keyword='join_lang', action_join_group=group.pk, response='Thanks for joining')
         response = self.client.post(reverse("triggers.trigger_register"), data=post_data)
-        self.assertEquals(200, response.status_code)
+        self.assertEqual(response.status_code, 200)
 
         # confirm our objects
         flow = Flow.objects.filter(flow_type=Flow.FLOW).order_by('-pk').first()
         trigger = Trigger.objects.get(keyword='join_lang', flow=flow)
-        self.assertEquals('Join Lang Group', trigger.flow.name)
+        self.assertEqual(trigger.flow.name, 'Join Lang Group')
+
+        # the flow should be created with the primary language for the org
+        self.assertEqual(flow.base_language, 'kli')
 
     def test_trigger_form(self):
 
@@ -437,7 +442,6 @@ class TriggerTest(TembaTest):
 
             pick.delete()
             favorites.delete()
-
 
     def test_unicode_trigger(self):
         self.login(self.admin)
@@ -508,7 +512,7 @@ class TriggerTest(TembaTest):
         post_data = dict(flow=flow.pk)
 
         response = self.client.post(trigger_url, post_data)
-        trigger =  Trigger.objects.all().order_by('-pk')[0]
+        trigger = Trigger.objects.all().order_by('-pk')[0]
 
         self.assertEquals(trigger.trigger_type, Trigger.TYPE_MISSED_CALL)
         self.assertEquals(trigger.flow.pk, flow.pk)
@@ -728,40 +732,48 @@ class TriggerTest(TembaTest):
         self.assertTrue(group in updated_trigger.groups.all())
 
     def test_trigger_handle(self):
-
         self.contact = self.create_contact('Eric', '+250788382382')
         self.contact2 = self.create_contact('Nic', '+250788383383')
 
+        # create an incoming message with no text
         incoming = self.create_msg(direction=INCOMING, contact=self.contact, text="")
 
+        # check not handled
         self.assertFalse(Trigger.find_and_handle(incoming))
 
         incoming = self.create_msg(direction=INCOMING, contact=self.contact, text="some text")
 
+        # check not handled (no trigger or flow)
         self.assertFalse(Trigger.find_and_handle(incoming))
 
+        # setup a flow and keyword trigger
         flow = self.create_flow()
-
         Trigger.objects.create(org=self.org, keyword='when', flow=flow,
                                created_by=self.admin, modified_by=self.admin)
 
         incoming = self.create_msg(direction=INCOMING, contact=self.contact, text="when is it?")
 
+        # check message was handled
         self.assertTrue(Trigger.find_and_handle(incoming))
 
+        # should also have a flow run
+        run = FlowRun.objects.get()
+        self.assertTrue(run.responded)
+
+        # create trigger for specific contact group
         group = self.create_group("first", [self.contact2])
-
-        trigger = Trigger.objects.create(org=self.org, keyword='where', flow=flow, 
+        trigger = Trigger.objects.create(org=self.org, keyword='where', flow=flow,
                                          created_by=self.admin, modified_by=self.admin)
-
         trigger.groups.add(group)
 
         incoming = self.create_msg(direction=INCOMING, contact=self.contact, text="where do you go?")
 
+        # check not handled (contact not in the group)
         self.assertFalse(Trigger.find_and_handle(incoming))
 
         incoming2 = self.create_msg(direction=INCOMING, contact=self.contact2, text="where do I find it?")
 
+        # check was handled (this contact is in the group)
         self.assertTrue(Trigger.find_and_handle(incoming2))
 
     def test_trigger_handle_priority(self):
@@ -818,4 +830,3 @@ class TriggerTest(TembaTest):
 
         # incoming4 should not be handled
         self.assertFalse(Trigger.find_and_handle(incoming4))
-

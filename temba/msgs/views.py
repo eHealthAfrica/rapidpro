@@ -5,6 +5,7 @@ import json
 from datetime import date, timedelta
 from django import forms
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.urlresolvers import reverse
 from django.contrib import messages
 from django.db import IntegrityError
@@ -22,6 +23,7 @@ from temba.orgs.views import OrgPermsMixin, OrgObjPermsMixin, ModalMixin
 from temba.channels.models import Channel, SEND
 from temba.utils import analytics
 from temba.utils.expressions import get_function_listing
+from temba.utils.views import BaseActionForm
 from .models import Broadcast, Call, ExportMessagesTask, Label, Msg, Schedule, SystemLabel, VISIBLE
 
 
@@ -67,6 +69,7 @@ class SendMessageForm(Form):
 
     def __init__(self, user, *args, **kwargs):
         super(SendMessageForm, self).__init__(*args, **kwargs)
+        self.user = user
         self.fields['omnibox'].set_user(user)
 
     def is_valid(self):
@@ -76,6 +79,12 @@ class SendMessageForm(Form):
                 self.errors['__all__'] = self.error_class([unicode(_("At least one recipient is required"))])
                 return False
         return valid
+
+    def clean(self):
+        cleaned = super(SendMessageForm, self).clean()
+        if self.user.get_org().is_suspended():
+            raise ValidationError(_("Sorry, your account is currently suspended. To enable sending messages, please contact support."))
+        return cleaned
 
 
 class MsgListView(OrgPermsMixin, SmartListView):
@@ -247,7 +256,7 @@ class BroadcastCRUDL(SmartCRUDL):
 
             # can this org send to any URN schemes?
             if not org.get_schemes(SEND):
-                return HttpResponseBadRequest("You must add a phone number before sending messages")
+                return HttpResponseBadRequest(_("You must add a phone number before sending messages"))
 
             return response
 
@@ -327,135 +336,18 @@ class BroadcastCRUDL(SmartCRUDL):
             return kwargs
 
 
-class BaseActionForm(forms.Form):
-    ALLOWED_ACTIONS = (('label', _("Label Messages")),
-                       ('archive', _("Archive Messages")),
-                       ('inbox', _("Move to Inbox")),
-                       ('resend', _("Resend Messages")),
-                       ('delete', _("Delete Messages")))
-
-    OBJECT_CLASS = Msg
-    OBJECT_CLASS_MANAGER = 'current_messages'
-    LABEL_CLASS = Label
-    LABEL_CLASS_MANAGER = 'all_objects'
-    HAS_IS_ACTIVE = False
-
-    action = forms.ChoiceField(choices=ALLOWED_ACTIONS)
-    label = forms.ModelChoiceField(getattr(LABEL_CLASS, LABEL_CLASS_MANAGER).all(), required=False)
-    objects = forms.ModelMultipleChoiceField(getattr(OBJECT_CLASS, OBJECT_CLASS_MANAGER).all())
-    add = forms.BooleanField(required=False)
-    number = forms.BooleanField(required=False)
-
-    def __init__(self, *args, **kwargs):
-        org = kwargs['org']
-        self.user = kwargs['user']
-        del kwargs['org']
-        del kwargs['user']
-        super(BaseActionForm, self).__init__(*args, **kwargs)
-
-        self.fields['action'].choices = self.ALLOWED_ACTIONS
-        self.fields['label'].queryset = getattr(self.LABEL_CLASS, self.LABEL_CLASS_MANAGER).filter(org=org)
-        self.fields['objects'].queryset = getattr(self.OBJECT_CLASS, self.OBJECT_CLASS_MANAGER).filter(org=org)
-        if self.HAS_IS_ACTIVE:
-            self.fields['objects'].queryset = getattr(self.OBJECT_CLASS, self.OBJECT_CLASS_MANAGER).filter(org=org, is_active=True)
-
-    def clean(self):
-        data = self.cleaned_data
-        action = data['action']
-
-        update_perm_codename = self.OBJECT_CLASS.__name__.lower() + "_update"
-
-        update_allowed = self.user.get_org_group().permissions.filter(codename=update_perm_codename)
-        delete_allowed = self.user.get_org_group().permissions.filter(codename="msg_update")
-        resend_allowed = self.user.get_org_group().permissions.filter(codename="broadcast_send")
-
-        if action in ['label', 'unlabel', 'archive', 'restore', 'block', 'unblock'] and not update_allowed:
-            raise forms.ValidationError(_("Sorry you have no permission for this action."))
-
-        if action == 'delete' and not delete_allowed:
-            raise forms.ValidationError(_("Sorry you have no permission for this action."))
-
-        if action == 'resend' and not resend_allowed:
-            raise forms.ValidationError(_("Sorry you have no permission for this action."))
-
-        if action == 'label' and 'label' not in self.cleaned_data:
-            raise forms.ValidationError(_("Must specify a label"))
-
-        if action == 'unlabel' and 'label' not in self.cleaned_data:
-            raise forms.ValidationError(_("Must specify a label"))
-
-        return data
-
-    def execute(self):
-        data = self.cleaned_data
-        action = data['action']
-        objects = data['objects']
-
-        if action == 'label':
-            label = data['label']
-            add = data['add']
-
-            if not label:
-                return dict(error=_("Missing label"))
-
-            changed = self.OBJECT_CLASS.apply_action_label(objects, label, add)
-            return dict(changed=changed, added=add, label_id=label.id, label=label.name)
-
-        elif action == 'unlabel':
-            label = data['label']
-            add = data['add']
-
-            if not label:
-                return dict(error=_("Missing label"))
-
-            changed = self.OBJECT_CLASS.apply_action_label(objects, label, False)
-            return dict(changed=changed, added=add, label_id=label.id, label=label.name)
-
-        elif action == 'archive':
-            changed = self.OBJECT_CLASS.apply_action_archive(objects)
-            return dict(changed=changed)
-
-        elif action == 'block':
-            changed = self.OBJECT_CLASS.apply_action_block(objects)
-            return dict(changed=changed)
-
-        elif action == 'unblock':
-            changed = self.OBJECT_CLASS.apply_action_unblock(objects)
-            return dict(changed=changed)
-
-        elif action == 'restore':
-            changed = self.OBJECT_CLASS.apply_action_restore(objects)
-            return dict(changed=changed)
-
-        elif action == 'delete':
-            changed = self.OBJECT_CLASS.apply_action_delete(objects)
-            return dict(changed=changed)
-
-        elif action == 'resend':
-            changed = self.OBJECT_CLASS.apply_action_resend(objects)
-            return dict(changed=changed)
-
-        # should never make it here
-        else:  # pragma: no cover
-            return dict(error=_("Oops, so sorry. Something went wrong!"))
-
-        # no action means no-op
-        return dict()  # pragma: no cover
-
-
 class MsgActionForm(BaseActionForm):
-    ALLOWED_ACTIONS = (('label', _("Label Messages")),
+    allowed_actions = (('label', _("Label Messages")),
                        ('archive', _("Archive Messages")),
                        ('restore', _("Move to Inbox")),
                        ('resend', _("Resend Messages")),
                        ('delete', _("Delete Messages")))
 
-    OBJECT_CLASS = Msg
-    OBJECT_CLASS_MANAGER = 'all_messages'
-    LABEL_CLASS = Label
-    LABEL_CLASS_MANAGER = 'label_objects'
-
-    HAS_IS_ACTIVE = False
+    model = Msg
+    model_manager = 'all_messages'
+    label_model = Label
+    label_model_manager = 'label_objects'
+    has_is_active = False
 
     class Meta:
         fields = ('action', 'label', 'objects', 'add', 'number')
@@ -520,7 +412,6 @@ class ExportForm(Form):
 
         if start_date and start_date > date.today():
             raise forms.ValidationError(_("The Start Date should not be a date in the future."))
-
 
         if end_date and start_date and end_date <= start_date:
             raise forms.ValidationError(_("The End Date should be a date after the Start Date"))

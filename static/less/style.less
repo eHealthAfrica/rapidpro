@@ -173,6 +173,10 @@ input, textarea {
   width: 350px;
 }
 
+.controls .uneditable-input {
+  width: 350px;
+}
+
 select, textarea, input[type="text"], input[type="password"], input[type="datetime"], input[type="datetime-local"], input[type="date"], input[type="month"], input[type="time"], input[type="week"], input[type="number"], input[type="email"], input[type="url"], input[type="search"], input[type="tel"], input[type="color"], .uneditable-input {
   display: inline-block;
   height: 25px;
@@ -1535,6 +1539,11 @@ tr.checked {
   .omni-twitter:before {
     content: "\e007";
   }
+
+  .omni-telegram:before {
+    content: "\e900";
+    padding-top: 5px;
+  }
 }
 
 .select2-temba-field, .select2-temba-user-group-field {
@@ -1614,6 +1623,23 @@ tr.checked {
   }
 
 }
+
+// *******************************
+// Smartmin
+// *******************************
+form.smartmin-form ul.errorlist li {
+  color: #b94a48;
+}
+
+.form-horizontal .form-actions {
+  padding-left: 160px;
+}
+
+.form-actions {
+  padding:0px;
+  margin-top:0px;
+}
+
 
 // *******************************
 // Modals
@@ -2245,7 +2271,7 @@ input[type='radio'] {
             margin-top: -1px;
           }
 
-          .icon-channel-android {
+          .icon-mobile {
             color: @color-font-lightgrey;
             font-size:16px;
             margin-right: 5px;

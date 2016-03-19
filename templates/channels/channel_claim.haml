@@ -132,6 +132,28 @@
                   If you are based in Somalia, you can integrate {{ brand }} with Shaqodoon to send
                   and receive messages on your shortcode.
 
+    -if user_org.timezone == 'Asia/Manila'
+      .claim-row.chikka-channel{class:"{% if recommended_channel == 'chikka' %}recommended{% endif %}"}
+        .recommendation.hide
+          %h3
+            -trans "Recommendation"
+          -blocktrans with "<a href='http://api.chikka.com/'>" as link_start and "</a>" as link_end
+            We recommend using Chikka in the Phillipines. Visit {{link_start}}their website{{link_end}} for details.
+
+        .row
+          .span3
+            %a.btn.btn-primary.btn-primary-muted.btn-claim{href:"{% url 'channels.channel_claim_chikka' %}"}
+              .claim-glyph.icon-channel-external
+              %p.claim-text
+                -trans "Chikka Short Code"
+
+          .span9
+            .claim-description
+              %div
+                -blocktrans with brand.name as brand
+                  If you are based in the Phillipines, you can integrate {{ brand }} with Chikka to send
+                  and receive messages on your shortcode.
+
     -if user_org.timezone == 'Asia/Jakarta'
       .claim-row.hub9-channel{class:"{% if recommended_channel == 'hub9' %}recommended{% endif %}"}
         .recommendation.hide
@@ -198,6 +220,27 @@
               %div
                 -blocktrans
                   Instantly add a dedicated phone number in the area code of your choice.
+
+
+      .claim-row.twilio-messaging-service-channel
+        .recommendation.hide
+          %h3
+            -trans "Recommendation"
+          -blocktrans
+
+
+        .row
+          .span3
+            %a.btn.btn-primary.btn-primary-muted.btn-claim{href:"{% url 'channels.channel_claim_twilio_messaging_service' %}"}
+              .claim-glyph.icon-channel-twilio
+              %p.claim-text
+                -trans "Twilio Messaging Service"
+
+          .span9
+            .claim-description
+              %div
+                -blocktrans
+                  You can connect a messaging service from your Twilio account to benefit from <a href="https://www.twilio.com/copilot">Twilio Copilot features</a></br>
 
     -if not user_org.is_connected_to_nexmo
       .claim-row.nexmo-channel{class:"{% if recommended_channel == 'nexmo' %}recommended{% endif %}"}
@@ -451,23 +494,41 @@
             %div
               -trans "Use our pluggable API to connect an external service you already have."
 
-    -if org_perms.channels.channel_claim_twitter
+    -if org_perms.channels.channel_claim_twitter or org_perms.channels.channel_claim_telegram
       %h3
         -trans "Social Network Channels"
 
-      .claim-row.twitter-channel
-        .row
-          .span3
-            %a.btn.btn-primary.btn-primary-muted.btn-claim{href:"{% url 'channels.channel_claim_twitter' %}"}
-              .claim-glyph.icon-twitter
-              %p.claim-text
-                -trans "Twitter"
+      -if org_perms.channels.channel_claim_twitter
+        .claim-row.twitter-channel
+          .row
+            .span3
+              %a.btn.btn-primary.btn-primary-muted.btn-claim{href:"{% url 'channels.channel_claim_twitter' %}"}
+                .claim-glyph.icon-twitter
+                %p.claim-text
+                  -trans "Twitter"
 
-          .span9
-            .claim-description
-              %div
-                -blocktrans
-                  Add a <a href="http://twitter.com">Twitter</a> account to send messages as direct messages.
+            .span9
+              .claim-description
+                %div
+                  -blocktrans
+                    Add a <a href="http://twitter.com">Twitter</a> account to send messages as direct messages.
+
+      -if org_perms.channels.channel_claim_telegram
+        .claim-row.twitter-channel
+          .row
+            .span3
+              %a.btn.btn-primary.btn-primary-muted.btn-claim{href:"{% url 'channels.channel_claim_telegram' %}"}
+                .claim-glyph.icon-telegram
+                %p.claim-text
+                  -trans "Telegram"
+
+            .span9
+              .claim-description
+                %div
+                  -blocktrans
+                    Add a <a href="https://telegram.org">Telegram</a> bot to send and receive messages to Telegram users
+                    for free. Your users will need an Android, Windows or iOS device and a Telegram account to send
+                    and receive messages.
 
 
 

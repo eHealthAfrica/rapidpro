@@ -2,6 +2,7 @@ from __future__ import unicode_literals
 
 import json
 import regex
+import logging
 
 from collections import Counter
 from datetime import datetime, timedelta
@@ -12,7 +13,7 @@ from django.core.files.storage import default_storage
 from django.core.urlresolvers import reverse
 from django.db.models import Count, Q, Max
 from django import forms
-from django.http import HttpResponse, HttpResponseRedirect
+from django.http import HttpResponse, HttpResponseRedirect, HttpResponseBadRequest
 from django.utils import timezone
 from django.utils.text import slugify
 from django.utils.translation import ugettext_lazy as _
@@ -26,15 +27,17 @@ from temba.formax import FormaxMixin
 from temba.ivr.models import IVRCall
 from temba.orgs.views import OrgPermsMixin, OrgObjPermsMixin, ModalMixin
 from temba.reports.models import Report
-from temba.flows.models import Flow, FlowReferenceException, FlowRun, FlowRevision, STARTING, PENDING, ACTION_SET, RULE_SET
+from temba.flows.models import Flow, FlowReferenceException, FlowRun, FlowRevision, STARTING, PENDING
 from temba.flows.tasks import export_flow_results_task
 from temba.msgs.models import Msg, VISIBLE, INCOMING, OUTGOING
-from temba.msgs.views import BaseActionForm
 from temba.triggers.models import Trigger
 from temba.utils import analytics, build_json_response, percentage, datetime_to_str
 from temba.utils.expressions import get_function_listing
-from temba.values.models import Value, STATE, DISTRICT
+from temba.utils.views import BaseActionForm
+from temba.values.models import Value
 from .models import FlowStep, RuleSet, ActionLog, ExportFlowResultsTask, FlowLabel, COMPLETE, FAILED, FlowStart
+
+logger = logging.getLogger(__name__)
 
 
 class BaseFlowForm(forms.ModelForm):
@@ -94,15 +97,13 @@ class BaseFlowForm(forms.ModelForm):
 
 
 class FlowActionForm(BaseActionForm):
-    ALLOWED_ACTIONS = (('archive', _("Archive Flows")),
+    allowed_actions = (('archive', _("Archive Flows")),
                        ('label', _("Label Messages")),
                        ('restore', _("Restore Flows")))
 
-    OBJECT_CLASS = Flow
-    OBJECT_CLASS_MANAGER = 'objects'
-    LABEL_CLASS = FlowLabel
-    LABEL_CLASS_MANAGER = 'objects'
-    HAS_IS_ACTIVE = True
+    model = Flow
+    label_model = FlowLabel
+    has_is_active = True
 
     class Meta:
         fields = ('action', 'objects', 'label', 'add')
@@ -150,7 +151,7 @@ class RuleCRUDL(SmartCRUDL):
     class Choropleth(OrgPermsMixin, SmartReadView):
 
         def get_context_data(self, **kwargs):
-            from temba.values.models import Value, STATE, DISTRICT, WARD
+            from temba.values.models import Value
             from temba.locations.models import AdminBoundary
 
             context = dict()
@@ -166,10 +167,9 @@ class RuleCRUDL(SmartCRUDL):
             parent = AdminBoundary.objects.get(osm_id=parent_osm_id)
 
             # figure out our state and district contact fields
-            state_field = ContactField.objects.filter(org=org, value_type=STATE).first()
-            district_field = ContactField.objects.filter(org=org, value_type=DISTRICT).first()
-            ward_field = ContactField.objects.filter(org=org, value_type=WARD).first()
-
+            state_field = ContactField.objects.filter(org=org, value_type=Value.TYPE_STATE).first()
+            district_field = ContactField.objects.filter(org=org, value_type=Value.TYPE_DISTRICT).first()
+            ward_field = ContactField.objects.filter(org=org, value_type=Value.TYPE_WARD).first()
             # by default, segment by states
             segment = dict(location=state_field.label)
             if parent.level == 1:
@@ -247,9 +247,10 @@ class RuleCRUDL(SmartCRUDL):
         title = "Analytics"
 
         def get_context_data(self, **kwargs):
-            org = self.request.user.get_org()
-            dthandler = lambda obj: obj.isoformat() if isinstance(obj, datetime) else obj
+            def dthandler(obj):
+                return obj.isoformat() if isinstance(obj, datetime) else obj
 
+            org = self.request.user.get_org()
             rules = RuleSet.objects.filter(flow__is_active=True, flow__org=org).exclude(label=None).order_by('flow__created_on', 'y').select_related('flow')
             current_flow = None
             flow_json = []
@@ -264,7 +265,7 @@ class RuleCRUDL(SmartCRUDL):
                     current_flow = dict(id=flow.id,
                                         text=flow.name,
                                         rules=[],
-                                        stats=dict(contacts=flow.get_total_contacts(),
+                                        stats=dict(runs=flow.get_total_runs(),
                                                    created_on=flow.created_on))
 
                 current_flow['rules'].append(dict(text=rule.label, id=rule.pk, flow=current_flow['id'],
@@ -274,7 +275,7 @@ class RuleCRUDL(SmartCRUDL):
             if current_flow and len(current_flow['rules']) > 0:
                 flow_json.append(current_flow)
 
-            groups = ContactGroup.user_groups.filter(is_active=True, org=org).order_by('name')
+            groups = ContactGroup.user_groups.filter(org=org).order_by('name')
             groups_json = []
             for group in groups:
                 if group.get_member_count() > 0:
@@ -292,8 +293,8 @@ class RuleCRUDL(SmartCRUDL):
                 if request_report:
                     current_report = json.dumps(request_report.as_json())
 
-            org_supports_map = org.country and org.contactfields.filter(value_type=STATE).first() and \
-                               org.contactfields.filter(value_type=DISTRICT).first()
+            org_supports_map = org.country and org.contactfields.filter(value_type=Value.TYPE_STATE).first() and \
+                               org.contactfields.filter(value_type=Value.TYPE_DISTRICT).first()
 
             return dict(flows=json.dumps(flow_json, default=dthandler), org_supports_map=org_supports_map,
                         groups=json.dumps(groups_json), reports=json.dumps(reports_json), current_report=current_report)
@@ -374,7 +375,22 @@ class FlowCRUDL(SmartCRUDL):
                 revision = FlowRevision.objects.get(flow=flow, pk=revision_id)
                 return build_json_response(revision.get_definition_json())
             else:
-                revisions = [revision.as_json() for revision in flow.revisions.all().order_by('-created_on')[:25]]
+                revisions = []
+                for revision in flow.revisions.all().order_by('-created_on')[:25]:
+                    # validate the flow defintion before presenting it to the user
+                    try:
+                        FlowRevision.validate_flow_definition(revision.get_definition_json())
+                        revisions.append(revision.as_json())
+
+                    except ValueError as e:
+                        # "expected" error in the def, silently cull it
+                        pass
+
+                    except Exception as e:
+                        # something else, we still cull, but report it to sentry
+                        logger.exception("Error validating flow revision: %s [%d]" % (flow.uuid, revision.id))
+                        pass
+
                 return build_json_response(revisions)
 
     class OrgQuerysetMixin(object):
@@ -453,8 +469,6 @@ class FlowCRUDL(SmartCRUDL):
             user = self.request.user
             org = user.get_org()
 
-
-
             # create triggers for this flow only if there are keywords
             if len(self.form.cleaned_data['keyword_triggers']) > 0:
                 for keyword in self.form.cleaned_data['keyword_triggers'].split(','):
@@ -469,15 +483,11 @@ class FlowCRUDL(SmartCRUDL):
         default_template = 'smartmin/delete_confirm.html'
         success_message = _("Your flow has been removed.")
 
-        def pre_delete(self, object):
-            # remove our ivr recordings if we have any
-            if object.flow_type == 'V':
-                try:
-                    path = 'recordings/%d/%d' % (object.org.pk, object.pk)
-                    if default_storage.exists(path):
-                        default_storage.delete(path)
-                except Exception:
-                    pass
+        def post(self, request, *args, **kwargs):
+            self.get_object().release()
+            redirect_url = self.get_redirect_url()
+
+            return HttpResponseRedirect(redirect_url)
 
     class Copy(OrgObjPermsMixin, SmartUpdateView):
         fields = []
@@ -499,6 +509,7 @@ class FlowCRUDL(SmartCRUDL):
                 super(FlowCRUDL.Update.FlowUpdateForm, self).__init__(*args, **kwargs)
                 self.user = user
 
+                metadata = self.instance.get_metadata_json()
                 flow_triggers = Trigger.objects.filter(org=self.instance.org, flow=self.instance, is_archived=False, groups=None,
                                                        trigger_type=Trigger.TYPE_KEYWORD).order_by('created_on')
 
@@ -507,6 +518,15 @@ class FlowCRUDL(SmartCRUDL):
                     choices = [('', 'No Preference')]
                     choices += [(lang.iso_code, lang.name) for lang in self.instance.org.languages.all().order_by('orgs', 'name')]
                     self.fields['base_language'] = forms.ChoiceField(label=_('Language'), choices=choices)
+
+                if self.instance.flow_type == Flow.SURVEY:
+                    contact_creation = forms.ChoiceField(label=_('Create a contact '),
+                                                       initial=metadata.get(Flow.CONTACT_CREATION, Flow.CONTACT_PER_RUN),
+                                                       help_text=_("Whether surveyor logins should be used as the contact for each run"),
+                                                       choices=((Flow.CONTACT_PER_RUN, _('For each run')),
+                                                                (Flow.CONTACT_PER_LOGIN, _('For each login'))))
+
+                    self.fields[Flow.CONTACT_CREATION] = contact_creation
 
                 self.fields['keyword_triggers'].initial = ','.join([t.keyword for t in flow_triggers])
 
@@ -520,14 +540,29 @@ class FlowCRUDL(SmartCRUDL):
 
         def derive_fields(self):
             fields = [field for field in self.fields]
-            if not self.get_object().base_language and self.org.primary_language:
+
+            obj = self.get_object()
+            if not obj.base_language and self.org.primary_language:
                 fields += ['base_language']
+
+            if obj.flow_type == Flow.SURVEY:
+                fields.insert(len(fields) - 1, Flow.CONTACT_CREATION)
+
             return fields
 
         def get_form_kwargs(self):
             kwargs = super(FlowCRUDL.Update, self).get_form_kwargs()
             kwargs['user'] = self.request.user
             return kwargs
+
+        def pre_save(self, obj):
+            obj = super(FlowCRUDL.Update, self).pre_save(obj)
+            metadata = obj.get_metadata_json()
+
+            if Flow.CONTACT_CREATION in self.form.cleaned_data:
+                metadata[Flow.CONTACT_CREATION] = self.form.cleaned_data[Flow.CONTACT_CREATION]
+            obj.set_metadata_json(metadata)
+            return obj
 
         def post_save(self, obj):
             keywords = set()
@@ -581,7 +616,7 @@ class FlowCRUDL(SmartCRUDL):
 
         def get_context_data(self, **kwargs):
             context = super(FlowCRUDL.BaseList, self).get_context_data(**kwargs)
-            context['org_has_flows'] = Flow.objects.filter(org=self.request.user.get_org()).count()
+            context['org_has_flows'] = Flow.objects.filter(org=self.request.user.get_org(), is_active=True).count()
             context['folders']= self.get_folders()
             context['labels']= self.get_flow_labels()
             context['request_url'] = self.request.path
@@ -597,10 +632,10 @@ class FlowCRUDL(SmartCRUDL):
         def get_folders(self):
             org = self.request.user.get_org()
 
-            folders = []
-            folders.append(dict(label="Active", url=reverse('flows.flow_list'), count=Flow.objects.filter(is_active=True, is_archived=False, flow_type=Flow.FLOW, org=org).count()))
-            folders.append(dict(label="Archived", url=reverse('flows.flow_archived'), count=Flow.objects.filter(is_active=True, is_archived=True, org=org).count()))
-            return folders
+            return [
+                dict(label="Active", url=reverse('flows.flow_list'), count=Flow.objects.filter(is_active=True, is_archived=False, flow_type=Flow.FLOW, org=org).count()),
+                dict(label="Archived", url=reverse('flows.flow_archived'), count=Flow.objects.filter(is_active=True, is_archived=True, org=org).count())
+            ]
 
     class Archived(BaseList):
         actions = ('restore',)
@@ -623,7 +658,6 @@ class FlowCRUDL(SmartCRUDL):
 
         def get_gear_links(self):
             links = []
-            run_id = self.request.REQUEST.get('run', None)
 
             if self.has_org_perm('flows.flow_update'):
                 links.append(dict(title=_('Edit'),
@@ -795,7 +829,6 @@ class FlowCRUDL(SmartCRUDL):
                 links.append(dict(title=_("Export"),
                                   href=reverse('flows.flow_export', args=[self.get_object().id])))
 
-
             if self.has_org_perm('flows.flow_revisions'):
                 links.append(dict(divider=True)),
                 links.append(dict(title=_("Revision History"),
@@ -813,7 +846,7 @@ class FlowCRUDL(SmartCRUDL):
 
     class Editor(Read):
         def get_context_data(self, *args, **kwargs):
-            context = super(FlowCRUDL.Read, self).get_context_data(*args, **kwargs)
+            context = super(FlowCRUDL.Editor, self).get_context_data(*args, **kwargs)
 
             context['recording_url'] = 'https://%s/' % settings.AWS_BUCKET_DOMAIN
 
@@ -1029,8 +1062,7 @@ class FlowCRUDL(SmartCRUDL):
                     rows.append([date,
                                  dict(category=phone, contact=run['contact__pk']),
                                  dict(category=name),
-                                 dict(contact=run['contact__pk'], category=run['count'])]
-                                + cols)
+                                 dict(contact=run['contact__pk'], category=run['count'])] + cols)
 
                 return build_json_response(dict(iTotalRecords=total, iTotalDisplayRecords=total, sEcho=self.request.REQUEST.get('sEcho', 0), aaData=rows))
             else:
@@ -1157,7 +1189,7 @@ class FlowCRUDL(SmartCRUDL):
 
                 # reset the groups for test contact
                 for group in test_contact.all_groups.all():
-                    group.update_contacts([test_contact], False)
+                    group.update_contacts(request.user, [test_contact], False)
 
                 flow.start([], [test_contact], restart_participants=True)
 
@@ -1252,6 +1284,9 @@ class FlowCRUDL(SmartCRUDL):
                 if FlowStart.objects.filter(flow=self.flow).exclude(status__in=[COMPLETE, FAILED]):
                     raise ValidationError(_("This flow is already being started, please wait until that process is complete before starting more contacts."))
 
+                if self.flow.org.is_suspended():
+                    raise ValidationError(_("Sorry, your account is currently suspended. To enable sending messages, please contact support."))
+
                 return cleaned
 
             class Meta:
@@ -1266,7 +1301,7 @@ class FlowCRUDL(SmartCRUDL):
 
         def get_context_data(self, *args, **kwargs):
             context = super(FlowCRUDL.Broadcast, self).get_context_data(*args, **kwargs)
-            context['participant_count'] = self.object.get_total_contacts()
+            context['run_count'] = self.object.get_total_runs()
             context['complete_count'] = self.object.get_completed_runs()
             return context
 
@@ -1368,7 +1403,6 @@ class FlowLabelCRUDL(SmartCRUDL):
         success_message = ''
         submit_button_name = _("Create")
 
-
         def get_form_kwargs(self):
             kwargs = super(FlowLabelCRUDL.Create, self).get_form_kwargs()
             kwargs['org'] = self.request.user.get_org()
@@ -1386,7 +1420,7 @@ class FlowLabelCRUDL(SmartCRUDL):
             if self.form.cleaned_data['flows']:
                 flow_ids = [ int(_) for _ in self.form.cleaned_data['flows'].split(',') if _.isdigit() ]
 
-            flows = Flow.objects.filter(org=obj.org, pk__in=flow_ids)
+            flows = Flow.objects.filter(org=obj.org, is_active=True, pk__in=flow_ids)
 
             if flows:
                 obj.toggle_label(flows, add=True)

@@ -145,8 +145,6 @@ class AuthenticateEndpoint(SmartFormView):
 @permission_classes((SSLPermission, IsAuthenticated))
 def api(request, format=None):
     """
-    ## REST API
-
     We provide a simple REST API for you to interact with your data from outside applications.
 
     All endpoints should be accessed using HTTPS. The following endpoints are provided:
@@ -434,6 +432,12 @@ class BroadcastEndpoint(ListAPIMixin, CreateAPIMixin, BaseAPIView):
     write_serializer_class = BroadcastCreateSerializer
     cache_counts = True
 
+    def post(self, request, *args, **kwargs):
+        user = request.user
+        if user.get_org().is_suspended():
+            return Response("Sorry, your account is currently suspended. To enable sending messages, please contact support.", status=status.HTTP_400_BAD_REQUEST)
+        return super(BroadcastEndpoint, self).post(request, *args, **kwargs)
+
     def get_queryset(self):
         queryset = self.model.objects.filter(org=self.request.user.get_org(), is_active=True).order_by('-created_on')
 
@@ -524,7 +528,6 @@ class MessageEndpoint(ListAPIMixin, CreateAPIMixin, BaseAPIView):
       * **text** - the text of the message received, note this is the logical view, this message may have been received as multiple text messages (string)
       * **created_on** - the datetime when this message was either received by the channel or created (datetime) (filterable: ```before``` and ```after```)
       * **sent_on** - for outgoing messages, the datetime when the channel sent the message (null if not yet sent or an incoming message) (datetime)
-      * **delivered_on** - for outgoing messages, the datetime when the channel delivered the message (null if not yet sent or an incoming message) (datetime)
       * **flow** - the flow this message is associated with (only filterable as ```flow``` repeatable)
       * **status** - the status of this message, a string one of: (filterable: ```status``` repeatable)
 
@@ -580,7 +583,8 @@ class MessageEndpoint(ListAPIMixin, CreateAPIMixin, BaseAPIView):
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
     def get_queryset(self):
-        queryset = Msg.current_messages.filter(org=self.request.user.get_org())
+        org = self.request.user.get_org()
+        queryset = Msg.all_messages.filter(org=org, contact__is_test=False)
 
         ids = splitting_getlist(self.request, 'id')
         if ids:
@@ -1425,7 +1429,7 @@ class ContactEndpoint(ListAPIMixin, CreateAPIMixin, DeleteAPIMixin, BaseAPIView)
             return Response(status=status.HTTP_404_NOT_FOUND)
         else:
             for contact in queryset:
-                contact.release()
+                contact.release(request.user)
             return Response(status=status.HTTP_204_NO_CONTENT)
 
     def get_base_queryset(self, request):
@@ -1481,7 +1485,7 @@ class ContactEndpoint(ListAPIMixin, CreateAPIMixin, DeleteAPIMixin, BaseAPIView)
         # can't prefetch a custom manager directly, so here we prefetch user groups as new attribute
         user_groups_prefetch = Prefetch('all_groups', queryset=ContactGroup.user_groups.all(), to_attr='prefetched_user_groups')
 
-        return queryset.select_related('org').prefetch_related(user_groups_prefetch).order_by('-modified_on')
+        return queryset.select_related('org').prefetch_related(user_groups_prefetch).order_by('-modified_on', 'pk')
 
     def prepare_for_serialization(self, object_list):
         # initialize caches of all contact fields and URNs
@@ -1692,7 +1696,8 @@ class ContactBulkActionEndpoint(BaseAPIView):
             remove - Remove the contacts from the given group
             block - Block the contacts
             unblock - Un-block the contacts
-            expire - force expiration of contacts' active flow runs
+            expire - Force expiration of contacts' active flow runs
+            archive - Archive all of the contacts' messages
             delete - Permanently delete the contacts
 
     * **group** - the name of a contact group (string, optional)
@@ -1734,7 +1739,7 @@ class ContactBulkActionEndpoint(BaseAPIView):
         spec['fields'] = [dict(name='contacts', required=True,
                                help="A JSON array of one or more strings, each a contact UUID."),
                           dict(name='action', required=True,
-                               help="One of the following strings: add, remove, block, unblock, expire, delete"),
+                               help="One of the following strings: add, remove, block, unblock, expire, archive, delete"),
                           dict(name='group', required=False,
                                help="The name of a contact group if the action is add or remove"),
                           dict(name='label_uuid', required=False,
@@ -1834,8 +1839,7 @@ class FlowResultsEndpoint(BaseAPIView):
         spec['fields'] = [dict(name='flow', required=False,
                                help="One or more flow ids to filter by.  ex: 234235,230420"),
                           dict(name='ruleset', required=False,
-                               help="One or more rulesets to filter by.  ex: 12412,12451"),
-                         ]
+                               help="One or more rulesets to filter by.  ex: 12412,12451")]
         return spec
 
 
@@ -1973,6 +1977,12 @@ class FlowRunEndpoint(ListAPIMixin, CreateAPIMixin, BaseAPIView):
     serializer_class = FlowRunReadSerializer
     write_serializer_class = FlowRunStartSerializer
     cache_counts = True
+
+    def post(self, request, *args, **kwargs):
+        user = request.user
+        if user.get_org().is_suspended():
+            return Response("Sorry, your account is currently suspended. To enable sending messages, please contact support.", status=status.HTTP_400_BAD_REQUEST)
+        return super(FlowRunEndpoint, self).post(request, *args, **kwargs)
 
     def render_write_response(self, write_output, context):
         if write_output:
@@ -2709,7 +2719,6 @@ class FlowEndpoint(ListAPIMixin, BaseAPIView):
       * **labels** - the labels for this flow (string array) (filterable: ```label``` repeatable)
       * **created_on** - the datetime when this flow was created (datetime) (filterable: ```before``` and ```after```)
       * **expires** - the time (in minutes) when this flow's inactive contacts will expire (integer)
-      * **participants** - the number of contacts who have participated in this flow (integer)
       * **runs** - the total number of runs for this flow (integer)
       * **completed_runs** - the number of completed runs for this flow (integer)
       * **rulesets** - the rulesets on this flow, including their node UUID, ruleset type, and label
@@ -2731,7 +2740,6 @@ class FlowEndpoint(ListAPIMixin, BaseAPIView):
                 "expires": 720,
                 "name": "Thrift Shop Status",
                 "labels": [ "Polls" ],
-                "participants": 1,
                 "runs": 3,
                 "completed_runs": 0,
                 "rulesets": [
