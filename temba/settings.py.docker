@@ -17,6 +17,7 @@ import logging
 #-----------------------------------------------------------------------------------
 HOSTNAME = 'rapidpro.ehealth.org.ng'
 TEMBA_HOST = 'rapidpro.ehealth.org.ng'
+ALLOWED_HOSTS = ['rapidpro.ehealth.org.ng']
 
 #-----------------------------------------------------------------------------------
 # Redis & Cache Configuration (we expect a Redis instance on localhost)
@@ -101,3 +102,5 @@ SEND_MESSAGES = False
 # Disable debug mode,  used for SAM project. Remove if not used anymore!
 #-----------------------------------------------------------------------------------
 DEBUG = False
+
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
