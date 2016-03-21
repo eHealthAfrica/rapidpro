@@ -96,3 +96,8 @@ SEND_WEBHOOKS = True
 # Enable message sending, used for SAM project. Disable if not used anymore!
 #-----------------------------------------------------------------------------------
 SEND_MESSAGES = False
+
+#-----------------------------------------------------------------------------------
+# Disable debug mode,  used for SAM project. Remove if not used anymore!
+#-----------------------------------------------------------------------------------
+DEBUG = False
