@@ -91,3 +91,8 @@ STATIC_URL = '/sitestatic/'
 # Enable webhooks, used for SAM project. Disable if not used anymore!
 #-----------------------------------------------------------------------------------
 SEND_WEBHOOKS = True
+
+#-----------------------------------------------------------------------------------
+# Enable message sending, used for SAM project. Disable if not used anymore!
+#-----------------------------------------------------------------------------------
+SEND_MESSAGES = False
