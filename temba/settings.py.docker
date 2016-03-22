@@ -18,7 +18,7 @@ import logging
 HOSTNAME = 'rapidpro.ehealth.org.ng'
 TEMBA_HOST = 'rapidpro.ehealth.org.ng'
 ALLOWED_HOSTS = ['rapidpro.ehealth.org.ng',
-                 'rapidpro-stage.elasticbeanstalk.com']
+                 'rapidpromaps-stage.elasticbeanstalk.com']
 
 #-----------------------------------------------------------------------------------
 # Redis & Cache Configuration (we expect a Redis instance on localhost)
