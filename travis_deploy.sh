@@ -16,14 +16,18 @@ then
     TAG="latest"
 fi
 
+export TAG
+
 # if this is on the develop branch and this is not a PR, deploy it
 if [ $BRANCH = "develop" -a $PR = "false" ]
 then
-    aws ecr get-login --region=us-east-1 | bash
-    docker tag -f rapidpro_rapidpro:latest 387526361725.dkr.ecr.us-east-1.amazonaws.com/rapidpro:$TAG
-    docker push 387526361725.dkr.ecr.us-east-1.amazonaws.com/rapidpro:$TAG
+    $(aws ecr get-login --region=${AWS_REGION} >/dev/null)
+    docker tag -f rapidpro_rapidpro:latest ${DOCKER_IMAGE_REPO}/rapidpro:$TAG
+    docker push ${DOCKER_IMAGE_REPO}/rapidpro:$TAG
 
-    fab stage preparedeploy
+    envsubst < conf/Dockerrun.aws.json.tmpl > conf/Dockerrun.aws.json
+    zip -r conf/deploy.zip .ebextensions/
+    zip -j conf/deploy.zip conf/Dockerrun.aws.json
 
     # we never want our elastic beanstalk to use tag "latest" so if this is an
     # un-tagged build, use the commit hash

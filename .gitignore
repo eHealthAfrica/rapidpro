@@ -4,6 +4,7 @@
 .ipynb_checkpoints
 *.pyc
 *~
+*.swp
 
 # temba
 dump.rdb
