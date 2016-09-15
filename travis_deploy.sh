@@ -16,6 +16,8 @@ then
     TAG="latest"
 fi
 
+export TAG
+
 # if this is on the develop branch and this is not a PR, deploy it
 if [ $BRANCH = "develop" -a $PR = "false" ]
 then
@@ -23,7 +25,9 @@ then
     docker tag -f rapidpro_rapidpro:latest ${DOCKER_IMAGE_REPO}/rapidpro:$TAG
     docker push ${DOCKER_IMAGE_REPO}/rapidpro:$TAG
 
-    fab stage preparedeploy
+    envsubst < conf/Dockerrun.aws.json.tmpl > conf/Dockerrun.aws.json
+    zip -r conf/deploy.zip .ebextensions/
+    zip -j conf/deploy.zip conf/Dockerrun.aws.json
 
     # we never want our elastic beanstalk to use tag "latest" so if this is an
     # un-tagged build, use the commit hash
