@@ -19,10 +19,9 @@ fi
 export TAG
 
 # if this is on the develop branch and this is not a PR, deploy it
-if [ $BRANCH = "develop" -a $PR = "false" ]
-then
+if [[ "${BRANCH}" == "develop" ]] && [[ "${PR}" == "false" ]]; then
     $(aws ecr get-login --region=${AWS_REGION} >/dev/null)
-    docker tag -f rapidpro_rapidpro:latest ${DOCKER_IMAGE_REPO}/rapidpro:$TAG
+    docker tag rapidpro_rapidpro:latest ${DOCKER_IMAGE_REPO}/rapidpro:$TAG
     docker push ${DOCKER_IMAGE_REPO}/rapidpro:$TAG
 
     envsubst < conf/Dockerrun.aws.json.tmpl > conf/Dockerrun.aws.json
