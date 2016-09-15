@@ -10,6 +10,8 @@ services:
 
 env:
   DOCKER_COMPOSE_VERSION: 1.5.2
+  DOCKER_IMAGE_REPO: 387526361725.dkr.ecr.eu-west-1.amazonaws.com
+  AWS_REGION: eu-west-1
 
 before_install:
   - sudo rm /usr/local/bin/docker-compose

@@ -3,7 +3,7 @@
   "containerDefinitions": [
     {
       "name": "rapidpro-app",
-      "image": "387526361725.dkr.ecr.us-east-1.amazonaws.com/rapidpro:{{ tag }}",
+      "image": "{{ DOCKER_IMAGE_REPO }}/rapidpro:{{ tag }}",
       "essential": true,
       "memory": 2000,
       "portMappings": [

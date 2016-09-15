@@ -19,9 +19,9 @@ fi
 # if this is on the develop branch and this is not a PR, deploy it
 if [ $BRANCH = "develop" -a $PR = "false" ]
 then
-    aws ecr get-login --region=us-east-1 | bash
-    docker tag -f rapidpro_rapidpro:latest 387526361725.dkr.ecr.us-east-1.amazonaws.com/rapidpro:$TAG
-    docker push 387526361725.dkr.ecr.us-east-1.amazonaws.com/rapidpro:$TAG
+    $(aws ecr get-login --region=${AWS_REGION} >/dev/null)
+    docker tag -f rapidpro_rapidpro:latest ${DOCKER_IMAGE_REPO}/rapidpro:$TAG
+    docker push ${DOCKER_IMAGE_REPO}/rapidpro:$TAG
 
     fab stage preparedeploy
 
