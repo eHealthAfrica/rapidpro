@@ -5,6 +5,7 @@ import json
 from datetime import date, timedelta
 from django import forms
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.urlresolvers import reverse
 from django.contrib import messages
 from django.db import IntegrityError
@@ -15,14 +16,15 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 from django.utils.translation import ugettext_lazy as _
 from smartmin.views import SmartCreateView, SmartCRUDL, SmartDeleteView, SmartFormView, SmartListView, SmartReadView, SmartUpdateView
+from temba.channels.models import Channel
 from temba.contacts.fields import OmniboxField
-from temba.contacts.models import ContactGroup, TEL_SCHEME
+from temba.contacts.models import ContactGroup, URN
 from temba.formax import FormaxMixin
 from temba.orgs.views import OrgPermsMixin, OrgObjPermsMixin, ModalMixin
-from temba.channels.models import Channel, SEND
 from temba.utils import analytics
 from temba.utils.expressions import get_function_listing
-from .models import Broadcast, Call, ExportMessagesTask, Label, Msg, Schedule, SystemLabel, VISIBLE
+from temba.utils.views import BaseActionForm
+from .models import Broadcast, ExportMessagesTask, Label, Msg, Schedule, SystemLabel
 
 
 def send_message_auto_complete_processor(request):
@@ -67,6 +69,7 @@ class SendMessageForm(Form):
 
     def __init__(self, user, *args, **kwargs):
         super(SendMessageForm, self).__init__(*args, **kwargs)
+        self.user = user
         self.fields['omnibox'].set_user(user)
 
     def is_valid(self):
@@ -77,10 +80,16 @@ class SendMessageForm(Form):
                 return False
         return valid
 
+    def clean(self):
+        cleaned = super(SendMessageForm, self).clean()
+        if self.user.get_org().is_suspended():
+            raise ValidationError(_("Sorry, your account is currently suspended. To enable sending messages, please contact support."))
+        return cleaned
 
-class MsgListView(OrgPermsMixin, SmartListView):
+
+class InboxView(OrgPermsMixin, SmartListView):
     """
-    Base class for message list views with message folders and labels listed by the side
+    Base class for inbox views with message folders and labels listed by the side
     """
     refresh = 10000
     add_button = True
@@ -94,7 +103,7 @@ class MsgListView(OrgPermsMixin, SmartListView):
             self.queryset = SystemLabel.get_queryset(org, self.system_label)
 
     def get_queryset(self, **kwargs):
-        queryset = super(MsgListView, self).get_queryset(**kwargs)
+        queryset = super(InboxView, self).get_queryset(**kwargs)
 
         # if we are searching, limit to last 90
         if 'search' in self.request.REQUEST:
@@ -112,14 +121,14 @@ class MsgListView(OrgPermsMixin, SmartListView):
         if hasattr(self, 'system_label') and 'search' not in self.request.REQUEST:
             self.object_list.count = lambda: counts[self.system_label]
 
-        context = super(MsgListView, self).get_context_data(**kwargs)
+        context = super(InboxView, self).get_context_data(**kwargs)
 
         folders = [dict(count=counts[SystemLabel.TYPE_INBOX], label=_("Inbox"), url=reverse('msgs.msg_inbox')),
                    dict(count=counts[SystemLabel.TYPE_FLOWS], label=_("Flows"), url=reverse('msgs.msg_flow')),
                    dict(count=counts[SystemLabel.TYPE_ARCHIVED], label=_("Archived"), url=reverse('msgs.msg_archived')),
                    dict(count=counts[SystemLabel.TYPE_OUTBOX], label=_("Outbox"), url=reverse('msgs.msg_outbox')),
                    dict(count=counts[SystemLabel.TYPE_SENT], label=_("Sent"), url=reverse('msgs.msg_sent')),
-                   dict(count=counts[SystemLabel.TYPE_CALLS], label=_("Calls"), url=reverse('msgs.call_list')),
+                   dict(count=counts[SystemLabel.TYPE_CALLS], label=_("Calls"), url=reverse('channels.channelevent_calls')),
                    dict(count=counts[SystemLabel.TYPE_SCHEDULED], label=_("Schedules"), url=reverse('msgs.broadcast_schedule_list')),
                    dict(count=counts[SystemLabel.TYPE_FAILED], label=_("Failed"), url=reverse('msgs.msg_failed'))]
 
@@ -145,8 +154,6 @@ class BroadcastForm(forms.ModelForm):
             if 'omnibox' not in self.data or len(self.data['omnibox'].strip()) == 0:
                 self.errors['__all__'] = self.error_class([_("At least one recipient is required")])
                 return False
-            else:
-                print "omni: '%s'" % self.data['omnibox']
 
         return valid
 
@@ -183,7 +190,7 @@ class BroadcastCRUDL(SmartCRUDL):
     class Update(OrgObjPermsMixin, SmartUpdateView):
         form_class = BroadcastForm
         fields = ('message', 'omnibox')
-        field_config = {'restrict':{'label':''}, 'omnibox':{'label':''}, 'message':{'label':'', 'help':''},}
+        field_config = {'restrict': {'label': ''}, 'omnibox': {'label': ''}, 'message': {'label': '', 'help': ''}}
         success_message = ''
         success_url = 'msgs.broadcast_schedule_list'
 
@@ -193,8 +200,8 @@ class BroadcastCRUDL(SmartCRUDL):
             return args
 
         def derive_initial(self):
-            selected = ['g-%d' % _.pk for _ in self.object.groups.all()]
-            selected += ['c-%d' % _.pk for _ in self.object.contacts.all()]
+            selected = ['g-%s' % _.uuid for _ in self.object.groups.all()]
+            selected += ['c-%s' % _.uuid for _ in self.object.contacts.all()]
             selected = ','.join(selected)
             message = self.object.text
             return dict(message=message, omnibox=selected)
@@ -213,7 +220,7 @@ class BroadcastCRUDL(SmartCRUDL):
             broadcast.save()
             return broadcast
 
-    class ScheduleList(MsgListView):
+    class ScheduleList(InboxView):
         refresh = 30000
         title = _("Scheduled Messages")
         fields = ('contacts', 'msgs', 'sent', 'status')
@@ -246,8 +253,8 @@ class BroadcastCRUDL(SmartCRUDL):
                 return response
 
             # can this org send to any URN schemes?
-            if not org.get_schemes(SEND):
-                return HttpResponseBadRequest("You must add a phone number before sending messages")
+            if not org.get_schemes(Channel.ROLE_SEND):
+                return HttpResponseBadRequest(_("You must add a phone number before sending messages"))
 
             return response
 
@@ -327,135 +334,18 @@ class BroadcastCRUDL(SmartCRUDL):
             return kwargs
 
 
-class BaseActionForm(forms.Form):
-    ALLOWED_ACTIONS = (('label', _("Label Messages")),
-                       ('archive', _("Archive Messages")),
-                       ('inbox', _("Move to Inbox")),
-                       ('resend', _("Resend Messages")),
-                       ('delete', _("Delete Messages")))
-
-    OBJECT_CLASS = Msg
-    OBJECT_CLASS_MANAGER = 'current_messages'
-    LABEL_CLASS = Label
-    LABEL_CLASS_MANAGER = 'all_objects'
-    HAS_IS_ACTIVE = False
-
-    action = forms.ChoiceField(choices=ALLOWED_ACTIONS)
-    label = forms.ModelChoiceField(getattr(LABEL_CLASS, LABEL_CLASS_MANAGER).all(), required=False)
-    objects = forms.ModelMultipleChoiceField(getattr(OBJECT_CLASS, OBJECT_CLASS_MANAGER).all())
-    add = forms.BooleanField(required=False)
-    number = forms.BooleanField(required=False)
-
-    def __init__(self, *args, **kwargs):
-        org = kwargs['org']
-        self.user = kwargs['user']
-        del kwargs['org']
-        del kwargs['user']
-        super(BaseActionForm, self).__init__(*args, **kwargs)
-
-        self.fields['action'].choices = self.ALLOWED_ACTIONS
-        self.fields['label'].queryset = getattr(self.LABEL_CLASS, self.LABEL_CLASS_MANAGER).filter(org=org)
-        self.fields['objects'].queryset = getattr(self.OBJECT_CLASS, self.OBJECT_CLASS_MANAGER).filter(org=org)
-        if self.HAS_IS_ACTIVE:
-            self.fields['objects'].queryset = getattr(self.OBJECT_CLASS, self.OBJECT_CLASS_MANAGER).filter(org=org, is_active=True)
-
-    def clean(self):
-        data = self.cleaned_data
-        action = data['action']
-
-        update_perm_codename = self.OBJECT_CLASS.__name__.lower() + "_update"
-
-        update_allowed = self.user.get_org_group().permissions.filter(codename=update_perm_codename)
-        delete_allowed = self.user.get_org_group().permissions.filter(codename="msg_update")
-        resend_allowed = self.user.get_org_group().permissions.filter(codename="broadcast_send")
-
-        if action in ['label', 'unlabel', 'archive', 'restore', 'block', 'unblock'] and not update_allowed:
-            raise forms.ValidationError(_("Sorry you have no permission for this action."))
-
-        if action == 'delete' and not delete_allowed:
-            raise forms.ValidationError(_("Sorry you have no permission for this action."))
-
-        if action == 'resend' and not resend_allowed:
-            raise forms.ValidationError(_("Sorry you have no permission for this action."))
-
-        if action == 'label' and 'label' not in self.cleaned_data:
-            raise forms.ValidationError(_("Must specify a label"))
-
-        if action == 'unlabel' and 'label' not in self.cleaned_data:
-            raise forms.ValidationError(_("Must specify a label"))
-
-        return data
-
-    def execute(self):
-        data = self.cleaned_data
-        action = data['action']
-        objects = data['objects']
-
-        if action == 'label':
-            label = data['label']
-            add = data['add']
-
-            if not label:
-                return dict(error=_("Missing label"))
-
-            changed = self.OBJECT_CLASS.apply_action_label(objects, label, add)
-            return dict(changed=changed, added=add, label_id=label.id, label=label.name)
-
-        elif action == 'unlabel':
-            label = data['label']
-            add = data['add']
-
-            if not label:
-                return dict(error=_("Missing label"))
-
-            changed = self.OBJECT_CLASS.apply_action_label(objects, label, False)
-            return dict(changed=changed, added=add, label_id=label.id, label=label.name)
-
-        elif action == 'archive':
-            changed = self.OBJECT_CLASS.apply_action_archive(objects)
-            return dict(changed=changed)
-
-        elif action == 'block':
-            changed = self.OBJECT_CLASS.apply_action_block(objects)
-            return dict(changed=changed)
-
-        elif action == 'unblock':
-            changed = self.OBJECT_CLASS.apply_action_unblock(objects)
-            return dict(changed=changed)
-
-        elif action == 'restore':
-            changed = self.OBJECT_CLASS.apply_action_restore(objects)
-            return dict(changed=changed)
-
-        elif action == 'delete':
-            changed = self.OBJECT_CLASS.apply_action_delete(objects)
-            return dict(changed=changed)
-
-        elif action == 'resend':
-            changed = self.OBJECT_CLASS.apply_action_resend(objects)
-            return dict(changed=changed)
-
-        # should never make it here
-        else:  # pragma: no cover
-            return dict(error=_("Oops, so sorry. Something went wrong!"))
-
-        # no action means no-op
-        return dict()  # pragma: no cover
-
-
 class MsgActionForm(BaseActionForm):
-    ALLOWED_ACTIONS = (('label', _("Label Messages")),
+    allowed_actions = (('label', _("Label Messages")),
                        ('archive', _("Archive Messages")),
                        ('restore', _("Move to Inbox")),
                        ('resend', _("Resend Messages")),
                        ('delete', _("Delete Messages")))
 
-    OBJECT_CLASS = Msg
-    OBJECT_CLASS_MANAGER = 'all_messages'
-    LABEL_CLASS = Label
-    LABEL_CLASS_MANAGER = 'label_objects'
-
-    HAS_IS_ACTIVE = False
+    model = Msg
+    model_manager = 'all_messages'
+    label_model = Label
+    label_model_manager = 'label_objects'
+    has_is_active = False
 
     class Meta:
         fields = ('action', 'label', 'objects', 'add', 'number')
@@ -521,7 +411,6 @@ class ExportForm(Form):
         if start_date and start_date > date.today():
             raise forms.ValidationError(_("The Start Date should not be a date in the future."))
 
-
         if end_date and start_date and end_date <= start_date:
             raise forms.ValidationError(_("The End Date should be a date after the Start Date"))
 
@@ -563,8 +452,6 @@ class MsgCRUDL(SmartCRUDL):
             if label_id:
                 label = Label.label_objects.get(pk=label_id)
 
-            host = self.request.branding['host']
-
             groups = form.cleaned_data['groups']
             start_date = form.cleaned_data['start_date']
             end_date = form.cleaned_data['end_date']
@@ -582,21 +469,22 @@ class MsgCRUDL(SmartCRUDL):
 
             # otherwise, off we go
             else:
-                export = ExportMessagesTask.objects.create(created_by=user, modified_by=user, org=org, host=host,
-                                                           label=label, start_date=start_date, end_date=end_date)
+                export = ExportMessagesTask.objects.create(created_by=user, modified_by=user, org=org, label=label,
+                                                           start_date=start_date, end_date=end_date)
                 for group in groups:
                     export.groups.add(group)
 
                 export_sms_task.delay(export.pk)
 
                 if not getattr(settings, 'CELERY_ALWAYS_EAGER', False):
-                    messages.info(self.request, _("We are preparing your export. ") +
-                                                _("We will e-mail you at %s when it is ready.") % self.request.user.username)
+                    messages.info(self.request, _("We are preparing your export. We will e-mail you at %s when "
+                                                  "it is ready.") % self.request.user.username)
 
                 else:
                     export = ExportMessagesTask.objects.get(id=export.pk)
                     dl_url = reverse('assets.download', kwargs=dict(type='message_export', pk=export.pk))
-                    messages.info(self.request, _("Export complete, you can find it here: %s (production users will get an email)") % dl_url)
+                    messages.info(self.request, _("Export complete, you can find it here: %s (production users "
+                                                  "will get an email)") % dl_url)
 
             try:
                 messages.success(self.request, self.derive_success_message())
@@ -630,9 +518,7 @@ class MsgCRUDL(SmartCRUDL):
 
         def form_valid(self, *args, **kwargs):
             data = self.form.cleaned_data
-            handled = Msg.create_incoming(data['channel'],
-                                          (TEL_SCHEME, data['urn']),
-                                          data['text'],
+            handled = Msg.create_incoming(data['channel'], URN.from_tel(data['urn']), data['text'],
                                           user=self.request.user)
 
             kwargs = self.get_form_kwargs()
@@ -649,12 +535,12 @@ class MsgCRUDL(SmartCRUDL):
             context['base_template'] = 'msgs/msg_test_frame.html'
             return self.render_to_response(Context(context))
 
-        def get_form_kwargs(self ,*args, **kwargs):
+        def get_form_kwargs(self, *args, **kwargs):
             kwargs = super(MsgCRUDL.Test, self).get_form_kwargs(*args, **kwargs)
             kwargs['org'] = self.request.user.get_org()
             return kwargs
 
-    class Inbox(MsgActionMixin, MsgListView):
+    class Inbox(MsgActionMixin, InboxView):
         title = _("Inbox")
         template_name = 'msgs/message_box.haml'
         system_label = SystemLabel.TYPE_INBOX
@@ -677,7 +563,7 @@ class MsgCRUDL(SmartCRUDL):
             context['org'] = self.request.user.get_org()
             return context
 
-    class Flow(MsgActionMixin, MsgListView):
+    class Flow(MsgActionMixin, InboxView):
         title = _("Flow Messages")
         template_name = 'msgs/message_box.haml'
         system_label = SystemLabel.TYPE_FLOWS
@@ -691,7 +577,7 @@ class MsgCRUDL(SmartCRUDL):
             context['actions'] = ['label']
             return context
 
-    class Archived(MsgActionMixin, MsgListView):
+    class Archived(MsgActionMixin, InboxView):
         title = _("Archived")
         template_name = 'msgs/msg_archived.haml'
         system_label = SystemLabel.TYPE_ARCHIVED
@@ -705,35 +591,35 @@ class MsgCRUDL(SmartCRUDL):
             context['actions'] = ['restore', 'label', 'delete']
             return context
 
-    class Outbox(MsgActionMixin, MsgListView):
+    class Outbox(MsgActionMixin, InboxView):
         title = _("Outbox Messages")
         template_name = 'msgs/message_box.haml'
         system_label = SystemLabel.TYPE_OUTBOX
 
         def get_queryset(self, **kwargs):
             qs = super(MsgCRUDL.Outbox, self).get_queryset(**kwargs)
-            return qs.order_by('-created_on').prefetch_related('labels', 'steps__run__flow').select_related('contact')
+            return qs.order_by('-created_on').prefetch_related('channel_logs', 'steps__run__flow').select_related('contact')
 
         def get_context_data(self, *args, **kwargs):
             context = super(MsgCRUDL.Outbox, self).get_context_data(*args, **kwargs)
             context['actions'] = []
             return context
 
-    class Sent(MsgActionMixin, MsgListView):
+    class Sent(MsgActionMixin, InboxView):
         title = _("Sent Messages")
         template_name = 'msgs/message_box.haml'
         system_label = SystemLabel.TYPE_SENT
 
         def get_queryset(self, **kwargs):
             qs = super(MsgCRUDL.Sent, self).get_queryset(**kwargs)
-            return qs.order_by('-created_on').prefetch_related('labels', 'steps__run__flow').select_related('contact')
+            return qs.order_by('-created_on').prefetch_related('channel_logs', 'steps__run__flow').select_related('contact')
 
         def get_context_data(self, *args, **kwargs):
             context = super(MsgCRUDL.Sent, self).get_context_data(*args, **kwargs)
             context['actions'] = []
             return context
 
-    class Failed(MsgActionMixin, MsgListView):
+    class Failed(MsgActionMixin, InboxView):
         title = _("Failed Outgoing Messages")
         template_name = 'msgs/msg_failed.haml'
         success_message = ''
@@ -741,14 +627,14 @@ class MsgCRUDL(SmartCRUDL):
 
         def get_queryset(self, **kwargs):
             qs = super(MsgCRUDL.Failed, self).get_queryset(**kwargs)
-            return qs.order_by('-created_on').prefetch_related('labels', 'steps__run__flow').select_related('contact')
+            return qs.order_by('-created_on').prefetch_related('channel_logs', 'steps__run__flow').select_related('contact')
 
         def get_context_data(self, *args, **kwargs):
             context = super(MsgCRUDL.Failed, self).get_context_data(*args, **kwargs)
             context['actions'] = ['resend']
             return context
 
-    class Filter(MsgActionMixin, MsgListView):
+    class Filter(MsgActionMixin, InboxView):
         template_name = 'msgs/msg_filter.haml'
 
         def derive_title(self, *args, **kwargs):
@@ -801,7 +687,7 @@ class MsgCRUDL(SmartCRUDL):
 
         def get_queryset(self, **kwargs):
             qs = super(MsgCRUDL.Filter, self).get_queryset(**kwargs)
-            qs = self.derive_label().filter_messages(qs).filter(visibility=VISIBLE)
+            qs = self.derive_label().filter_messages(qs).filter(visibility=Msg.VISIBILITY_VISIBLE)
 
             return qs.order_by('-created_on').prefetch_related('labels', 'steps__run__flow').select_related('contact')
 
@@ -853,12 +739,13 @@ class LabelCRUDL(SmartCRUDL):
 
     class List(OrgPermsMixin, SmartListView):
         paginate_by = None
+        default_order = ('name',)
 
         def derive_queryset(self, **kwargs):
             return Label.label_objects.filter(org=self.request.user.get_org())
 
         def render_to_response(self, context, **response_kwargs):
-            results = [dict(id=l.pk, text=l.name) for l in context['object_list']]
+            results = [dict(id=l.uuid, text=l.name) for l in context['object_list']]
             return HttpResponse(json.dumps(results), content_type='application/javascript')
 
     class Create(ModalMixin, OrgPermsMixin, SmartCreateView):
@@ -927,26 +814,3 @@ class LabelCRUDL(SmartCRUDL):
         redirect_url = "@msgs.msg_inbox"
         cancel_url = "@msgs.msg_inbox"
         success_message = ''
-
-
-class CallCRUDL(SmartCRUDL):
-    model = Call
-    actions = ('list',)
-
-    class List(MsgListView):
-        fields = ('call_type', 'contact', 'channel', 'time')
-        default_order = '-time'
-        search_fields = ('contact__urns__path__icontains', 'contact__name__icontains')
-        system_label = SystemLabel.TYPE_CALLS
-
-        def get_queryset(self, **kwargs):
-            qs = super(CallCRUDL.List, self).get_queryset(**kwargs)
-            return qs.order_by('-created_on').select_related('contact')
-
-        def get_contact(self, obj):
-            return obj.contact.get_display(self.org)
-
-        def get_context_data(self, *args, **kwargs):
-            context = super(CallCRUDL.List, self).get_context_data(*args, **kwargs)
-            context['actions'] = []
-            return context

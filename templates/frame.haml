@@ -18,7 +18,6 @@
     %meta{http-equiv:"X-UA-Compatible", content:"IE=10"}
 
     -load compress
-
     :javascript
 
       function conditionalLoad(local, remote) {
@@ -72,6 +71,10 @@
       %script{src:"{{ STATIC_URL }}js/moment-timezone.js"}
       %script{src:"{{ STATIC_URL }}js/jquery-ui-timepicker-addon.js"}
       %script{src:"{{ STATIC_URL }}js/uuid.js"}
+      %script{src:"{{ STATIC_URL }}js/featherlight.min.js"}
+      %script{src:"{{ STATIC_URL }}js/video.js"}
+      %script{src:"{{ STATIC_URL }}js/videojs-vjsdownload.js"}
+
 
       -if not debug and not testing
         %script{src:"{{ STATIC_URL }}js/raven.min.js"}
@@ -84,6 +87,7 @@
       %script{src:"{{ STATIC_URL }}coffee/formax.coffee", type:'text/coffeescript'}
       %script{src:"{{ STATIC_URL }}coffee/completions.coffee", type:'text/coffeescript'}
       %script{src:"{{ STATIC_URL }}js/labels.js"}
+
 
     -include "includes/frame_top.html"
 
@@ -108,6 +112,9 @@
         %link{type:'text/css', rel:'stylesheet', href:"{{ STATIC_URL }}css/select2.css", media:'all'}
         %link{type:'text/css', rel:'stylesheet', href:'{{ STATIC_URL }}css/jquery.atwho.css', media:'all'}
         %link{type:'text/css', rel:'stylesheet', href:"{{ STATIC_URL }}css/redmond/jquery-ui-1.10.2.custom.min.css", media:'all'}
+        %link{type:'text/css', rel:'stylesheet', href:"{{ STATIC_URL }}css/featherlight.min.css", media:'all'}
+        %link{type:'text/css', rel:'stylesheet', href:"{{ STATIC_URL }}css/video-js.css", media:'all'}
+        %link{type:'text/css', rel:'stylesheet', href:"{{ STATIC_URL }}css/videojs-vjsdownload.css", media:'all'}
 
       -compress css
         %link{type:'text/css', rel:'stylesheet', href:"{{ STATIC_URL }}fonts/temba/style.css", media:'all'}
@@ -130,6 +137,7 @@
   <![endif]-->
 
 -load smartmin
+{% block body %}
 %body#pageBody{style:'width:100%'}
   <!-- Header -->
   #print-header
@@ -144,25 +152,21 @@
 
   -if user_org
     .org-header
-      .org
-        %a{href:'javascript:void(0);'}
-          {{ user_org.name }}
+      -with user.get_user_orgs as orgs
+        -if orgs|length > 1
+          .pull-right.toggle
+            .icon-menu-2
 
-      .other-orgs.hide
+        .org
+          {{ user_org.name|truncatechars:30 }}
 
-        .account-details
-          .org
-            %a{href:'{% url "orgs.org_home" %}'}
-              .icon-home
-              Account Details
+        .other-orgs.hide
 
-        -for org in user.get_user_orgs
-          -if org != user_org
-            .org
-              %a.posterize{href:'{% url "orgs.org_choose"%}?organization={{org.pk}}'}
-                {{ org.name }}
-
-
+          -for org in orgs
+            -if org != user_org
+              .org
+                %a.posterize{href:'{% url "orgs.org_choose"%}?organization={{org.pk}}'}
+                  {{ org.name }}
 
 
   -block post-header
@@ -267,6 +271,7 @@
     -block extra-script
 
     <script type="text/javascript" src="{{ STATIC_URL }}js/libs/jquery.url.js"></script>
+
     <form id="posterizer" method="post">
       {% csrf_token %}
     </form>
@@ -281,20 +286,26 @@
 
         $(".btn").tooltip();
 
-        {% if request.user.get_user_orgs.count > 1 %}
-          $('.org-header > .org > a').on('click', function() {
-            var header = $('.org-header');
-            if (header.hasClass('expanded')) {
-              header.removeClass('expanded');
-            } else {
-              header.addClass('expanded');
-            }
-          });
-        {% else %}
-          $('.org-header > .org > a').on('click', function() {
-            document.location.href = '{% url "orgs.org_home" %}';
-          });
-        {% endif %}
+        $('.org-header > .toggle').live('click', function(evt) {
+          evt.stopPropagation();
+          var header = $('.org-header');
+          if (header.hasClass('expanded')) {
+            header.removeClass('expanded');
+          } else {
+            header.addClass('expanded');
+          }
+        });
+
+        $('.org-header').live('click', function(evt) {
+          url = '{% url "orgs.org_home" %}';
+          evt.stopPropagation();
+          if (evt.ctrlKey || evt.metaKey){
+            window.open(url,'_blank')
+          } else {
+            window.location = url;
+          }
+
+        });
 
         $('#top-menu li').hoverIntent({
           over:function() {
@@ -326,4 +337,6 @@
           $("#posterizer").submit();
         });
       });
+{% endblock body %}
+
 </html>

@@ -13,15 +13,19 @@
       -blocktrans with brand.name as brand
         You can connect an external aggregator or messaging service to {{ brand }} using our external API.
 
-        You can specify parameters to substitute in the URL by using these variables:
+        You can specify parameters to substitute in the URL or body by using these variables:
 
     %ul
       %li <code>{% templatetag openbrace %}{% templatetag openbrace %}text{% templatetag closebrace %}{% templatetag closebrace %}</code> -
         %trans the message of the text being sent
       %li <code>{% templatetag openbrace %}{% templatetag openbrace %}from{% templatetag closebrace %}{% templatetag closebrace %}</code> -
         %trans the phone number or address you have configured for this service
+      %li <code>{% templatetag openbrace %}{% templatetag openbrace %}from_no_plus{% templatetag closebrace %}{% templatetag closebrace %}</code> -
+        %trans the phone number or address you have configured for this service, with leading +'s removed
       %li <code>{% templatetag openbrace %}{% templatetag openbrace %}to{% templatetag closebrace %}{% templatetag closebrace %}</code> -
-        %trans the E164 phone number, Twitter handle or external address that this message is addressed to
+        %trans the phone number or URN this message is addressed to
+      %li <code>{% templatetag openbrace %}{% templatetag openbrace %}to_no_plus{% templatetag closebrace %}{% templatetag closebrace %}</code> -
+        %trans the phone number or URN this message is addressed to, with leading +'s removed
       %li <code>{% templatetag openbrace %}{% templatetag openbrace %}id{% templatetag closebrace %}{% templatetag closebrace %}</code> -
         %trans the unique id for this message
 
@@ -34,7 +38,7 @@
 
     %p
       -blocktrans
-        If using POST, then we will post <code>from</code>, <code>to</code>, <code>id</code> and <code>text</code> parameters to the URL you specify.
+        If using POST or PUT, you can specify the body of the request using the same variables.
 
     %p
       -blocktrans with brand.name as brand

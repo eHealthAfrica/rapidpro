@@ -2,9 +2,8 @@ from __future__ import unicode_literals
 
 import json
 
-from django.core.exceptions import ValidationError
 from django.forms import forms
-from .models import Contact, ContactGroup, ContactURN, TEL_SCHEME
+from .models import Contact, ContactGroup, ContactURN, URN
 
 
 class OmniboxWidget(forms.TextInput):
@@ -13,28 +12,28 @@ class OmniboxWidget(forms.TextInput):
     def get_objects_spec(cls, spec, user):
         org = user.get_org()
 
-        group_ids = []
-        contact_ids = []
+        group_uuids = []
+        contact_uuids = []
         urn_ids = []
         raw_numbers = []
 
-        item_lists = {'g': group_ids, 'c': contact_ids, 'u': urn_ids, 'n': raw_numbers}
+        item_lists = {'g': group_uuids, 'c': contact_uuids, 'u': urn_ids, 'n': raw_numbers}
 
         ids = spec.split(",") if spec else []
         for item_id in ids:
-            item_type, item_id = item_id.split("-")
+            item_type, item_id = item_id.split("-", 1)
             item_lists[item_type].append(item_id)
 
         # turn our raw numbers into new contacts with tel URNs for orgs that aren't anonymous
         if not org.is_anon:
             for number in raw_numbers:
-                urn_tuple = (TEL_SCHEME, number)
-                contact = Contact.get_or_create(org, user, urns=[urn_tuple])
-                urn = contact.urn_objects[urn_tuple]
-                urn_ids.append(urn.pk)
+                urn = URN.from_tel(number)
+                contact = Contact.get_or_create(org, user, urns=[urn])
+                urn_obj = contact.urn_objects[urn]
+                urn_ids.append(urn_obj.pk)
 
-        groups = ContactGroup.user_groups.filter(id__in=group_ids, org=org, is_active=True)
-        contacts = Contact.objects.filter(id__in=contact_ids, org=org, is_active=True)
+        groups = ContactGroup.user_groups.filter(uuid__in=group_uuids, org=org)
+        contacts = Contact.objects.filter(uuid__in=contact_uuids, org=org, is_active=True)
         urns = ContactURN.objects.filter(id__in=urn_ids, org=org)
 
         return dict(groups=groups, contacts=contacts, urns=urns)
@@ -49,16 +48,16 @@ class OmniboxWidget(forms.TextInput):
     def get_json(self, value):
 
         if 'user' not in self.__dict__:  # pragma: no cover
-            raise ValidationError(_("Omnibox requires a user, make sure you set one using field.set_user(user) in your form.__init__"))
+            raise ValueError("Omnibox requires a user, make sure you set one using field.set_user(user) in your form.__init__")
 
         objects = OmniboxWidget.get_objects_spec(value, self.user)
 
         selected = []
         for group in objects['groups']:
-            selected.append(dict(text=group.name, id="g-%d" % group.id, contacts=group.contacts.count()))
+            selected.append(dict(text=group.name, id="g-%s" % group.uuid, contacts=group.contacts.count()))
 
         for contact in objects['contacts']:
-            selected.append(dict(text=str(contact), id="c-%d" % contact.id))
+            selected.append(dict(text=str(contact), id="c-%s" % contact.uuid))
 
         return json.dumps(selected) if selected else None
 
@@ -76,5 +75,5 @@ class OmniboxField(forms.Field):
 
     def to_python(self, value):
         if 'user' not in self.__dict__:  # pragma: no cover
-            raise ValidationError(_("Omnibox requires a user, make sure you set one using field.set_user(user) in your form.__init__"))
+            raise ValueError("Omnibox requires a user, make sure you set one using field.set_user(user) in your form.__init__")
         return OmniboxWidget.get_objects_spec(value, self.user)

@@ -7,7 +7,9 @@
 
 -block title
   -if contact.is_blocked
-    .medium-help.icon-user-block{style:"float:left"}
+    <div class="medium-help icon-user-block" style="float:left" title="{% trans "blocked" %}"></div>
+  -elif contact.is_stopped
+    <div class="medium-help icon-user-delete" style="float:left" title="{% trans "stopped" %}"></div>
   -else
     .medium-help.icon-user{style:"float:left"}
   %h2.header-margin
@@ -19,12 +21,24 @@
         .glyph.icon-vcard
         {{contact.anon_identifier}}
 
-    -for urn in contact_sendable_urns
+    -for urn in contact_urns
       .contact-urn
         .{class:"glyph {{urn|urn_icon}}"}
         -if not user_org.is_anon
-          %a.contact-urn-path{href:"javascript:showComposeInitialized(\"u={{ urn.id }}\", null, fetchRecentMessages)"}><
-            {{urn|format_urn:user_org}}
+          -if urn.sendable
+            %a.contact-urn-path{href:"javascript:showComposeInitialized(\"u={{ urn.id }}\", null, fetchRecentMessages)"}><
+              {{urn|format_urn:user_org}}
+          -else
+            %i.contact-urn-path
+              -if urn.scheme == 'mailto'
+                %a{href:"{{urn}}"}
+                  {{urn|format_urn:user_org}}
+              -elif urn.scheme == 'twitter'
+                %a{href:'http://twitter.com/{{urn.path}}'}
+                  {{urn|format_urn:user_org}}
+              -else
+                {{urn|format_urn:user_org}}
+
         -else
           %span.contact-urn-path
             {{urn|format_urn:user_org}}
@@ -33,7 +47,14 @@
       .contact-urn
         .{class:"glyph {{urn|urn_icon}}"}
         %i.contact-urn-path
-          {{urn|format_urn:user_org}}
+          -if urn.scheme == 'mailto'
+            %a{href:"{{urn}}"}
+              {{urn|format_urn:user_org}}
+          -elif urn.scheme == 'twitter'
+            %a{href:'http://twitter.com/{{urn.path}}'}
+              {{urn|format_urn:user_org}}
+          -else
+            {{urn|format_urn:user_org}}
 
   -block contact-groups
     %div.header-margin
@@ -138,6 +159,9 @@
 
 -block extra-less
   -compress css
+
+    %link{type:'text/less', rel:'stylesheet', href:'{{STATIC_URL}}less/videojs.less', media:'all'}
+
     {% lessblock %}
       :plain
 
@@ -255,11 +279,20 @@
               color: @flat-darkwhite;
               padding: 5px;
 
+              &.boost {
+                font-size:18px;
+                margin-left:-3px;
+              }
+
               &.icon-bubble-right, &.icon-bubble-check {
                 color: @color-status-green;
               }
 
               &.icon-bubble-user {
+                color: @color-primary;
+              }
+
+              &.icon-bubble-user, &.user {
                 color: @color-primary;
               }
 
@@ -280,9 +313,11 @@
             .activity-message {
 
               .activity-body {
+
                 .text {
                   display: inline-block;
                 }
+
                 .channel {
                   display:inline-block;
                   font-size:11px;
@@ -344,12 +379,6 @@
         .contact-urn {
           display: inline-block;
           margin-right: 10px;
-
-          &:first-of-type {
-            .contact-urn-path {
-              font-weight: bold;
-            }
-          }
 
           .glyph {
             margin-right: 3px;
@@ -456,7 +485,7 @@
 
   :javascript
 
-    var page = 1;
+    var startTime = null;
     var refreshSeconds = 30;
     var scheduledRefresh = null;
 
@@ -475,20 +504,23 @@
         $(this).children('.long').hide();
       });
       // fetch our first chunk of history
-      $.get('/contact/history/{{contact.uuid}}/?rs={{recent_seconds}}', function(data){
+      $.get('/contact/history/{{contact.uuid}}/?rs={{recent_start}}', function(data){
         $('.history tr:last').remove();
         $('.history').append(data);
+
+        startTime = parseInt($('.history #start_time').text());
       });
 
       // when they click to load more, fetch more history
       $('.load-more').live('click', function() {
         $(this).css('visibility', 'hidden');
-        $('.since .loading').text('One moment..');
+        $('.since .loading').text('One moment...');
 
-        page++
-        $.get('/contact/history/{{contact.uuid}}/?rs={{recent_seconds}}&page=' + page, function(data){
+        $.get('/contact/history/{{contact.uuid}}/?rs={{recent_start}}&before=' + startTime, function(data){
           $('.history tr:last').remove();
           $('.history').append(data);
+
+          startTime = parseInt($('.history #start_time').text());
         });
       });
 
@@ -515,14 +547,16 @@
       })
 
       // update messages every 30s
-      scheduledReresh = setTimeout(fetchRecentMessages, refreshSeconds * 1000)
+      scheduledRefresh = setTimeout(fetchRecentMessages, refreshSeconds * 1000)
     });
 
     function fetchRecentMessages(){
       clearTimeout(scheduledRefresh);
-      $.get('/contact/history/{{contact.uuid}}/?r=true&rs={{recent_seconds}}', function(data){
+      $.get('/contact/history/{{contact.uuid}}/?r=true&rs={{recent_start}}', function(data){
           $('.history tr.recent').remove();
-          $('.history').prepend(data);
+          if (data.strip().length > 0) {
+            $('.history').prepend(data);
+          }
           scheduledRefresh = setTimeout(fetchRecentMessages, refreshSeconds * 1000)
       });
     }
@@ -554,6 +588,13 @@
     {% if org_perms.contacts.contact_update %}
     $(".update-contact").live('click', function(){
       var modal = new Modax('{% trans "Update Contact" %}','{% url "contacts.contact_update" object.pk %}');
+      modal.setIcon('icon-user');
+      modal.setRedirectOnSuccess(true);
+      modal.show();
+    });
+
+    $(".update-contact-fields").live('click', function(){
+      var modal = new Modax('{% trans "Custom Fields" %}','{% url "contacts.contact_update_fields" object.pk %}');
       modal.setIcon('icon-user');
       modal.setRedirectOnSuccess(true);
       modal.show();
@@ -604,9 +645,9 @@
 
     {% if org_perms.msgs.broadcast_send %}
     $(".contact-send-button").on('click', function() {
-      {% if contact_sendable_urns %}
+      {% if has_sendable_urn %}
       $(".gear-menu").removeClass("open");
-      showComposeInitialized("c={{object.id}}", null, fetchRecentMessages);
+      showComposeInitialized("c={{object.uuid}}", null, fetchRecentMessages);
       {% else %}
       modal = new Modal('{% trans "Error" %}', '{% trans "This contact does not have any number which you can send to. Please edit the contact first or add a new phone." %}');
       modal.addClass('alert');

@@ -1,21 +1,47 @@
 from __future__ import unicode_literals
 
 import logging
+import time
 
 from datetime import timedelta
-from django.conf import settings
 from django.utils import timezone
 from django.core.cache import cache
 from djcelery_transactions import task
 from redis_cache import get_redis_connection
-from temba.contacts.models import Contact
-from temba.urls import init_analytics
 from temba.utils.mage import mage_handle_new_message, mage_handle_new_contact
-from .models import Msg, Broadcast, ExportMessagesTask, PENDING, HANDLE_EVENT_TASK, MSG_EVENT, FIRE_EVENT
 from temba.utils.queues import pop_task
-import time
+from temba.utils import json_date_to_datetime
+from .models import Msg, Broadcast, ExportMessagesTask, PENDING, HANDLE_EVENT_TASK, MSG_EVENT
+from .models import FIRE_EVENT, TIMEOUT_EVENT, SystemLabel
 
 logger = logging.getLogger(__name__)
+
+
+def process_run_timeout(run_id, timeout_on):
+    """
+    Processes a single run timeout
+    """
+    from temba.flows.models import FlowRun
+
+    r = get_redis_connection()
+    run = FlowRun.objects.filter(id=run_id, is_active=True, flow__is_active=True).first()
+
+    if run:
+        key = 'pcm_%d' % run.contact_id
+        if not r.get(key):
+            with r.lock(key, timeout=120):
+                print "T[%09d] Processing timeout" % run.id
+                start = time.time()
+
+                run.refresh_from_db()
+
+                # this is still the timeout to process (json doesn't have microseconds so close enough)
+                if run.timeout_on and abs(run.timeout_on - timeout_on) < timedelta(milliseconds=1):
+                    run.resume_after_timeout()
+                else:
+                    print "T[%09d] .. skipping timeout, already handled" % run.id
+
+                print "T[%09d] %08.3f s" % (run.id, time.time() - start)
 
 
 @task(track_started=True, name='process_message_task')  # pragma: no cover
@@ -136,7 +162,7 @@ def check_messages_task():
     Also takes care of flipping Contacts from Failed to Normal and back based on their status.
     """
     from django.utils import timezone
-    from .models import INCOMING, OUTGOING, PENDING, QUEUED, ERRORED, FAILED, WIRED, SENT, DELIVERED
+    from .models import INCOMING, PENDING
     from temba.orgs.models import Org
     from temba.channels.tasks import send_msg_task
 
@@ -148,20 +174,6 @@ def check_messages_task():
         with r.lock(key, timeout=900):
             now = timezone.now()
             five_minutes_ago = now - timedelta(minutes=5)
-
-            # get any contacts that are currently normal that had a failed message in the past five minutes
-            for contact in Contact.objects.filter(msgs__created_on__gte=five_minutes_ago, msgs__direction=OUTGOING,
-                                                  msgs__status=FAILED, is_failed=False):
-                # if the last message from this contact is failed, then fail this contact
-                if contact.msgs.all().order_by('-created_on').first().status == FAILED:
-                    contact.fail()
-
-            # get any contacts that are currently failed that had a normal message in the past five minutes
-            for contact in Contact.objects.filter(msgs__created_on__gte=five_minutes_ago, msgs__direction=OUTGOING,
-                                                  msgs__status__in=[WIRED, SENT, DELIVERED], is_failed=True):
-                # if the last message from this contact is ok, then mark them as normal
-                if contact.msgs.all().order_by('-created_on').first().status in [WIRED, SENT, DELIVERED]:
-                    contact.unfail()
 
             # for any org that sent messages in the past five minutes, check for pending messages
             for org in Org.objects.filter(msgs__created_on__gte=five_minutes_ago).distinct():
@@ -202,9 +214,10 @@ def handle_event_task():
     Priority queue task that handles both event fires (when fired) and new incoming
     messages that need to be handled.
 
-    Currently two types of events may be "popped" from our queue:
+    Currently three types of events may be "popped" from our queue:
            msg - Which contains the id of the Msg to be processed
           fire - Which contains the id of the EventFire that needs to be fired
+       timeout - Which contains a run that timed out and needs to be resumed
     """
     from temba.campaigns.models import EventFire
     r = get_redis_connection()
@@ -232,6 +245,10 @@ def handle_event_task():
                     event.fire()
                     print "E[%09d] %08.3f s" % (event.id, time.time() - start)
 
+    elif event_task['type'] == TIMEOUT_EVENT:
+        timeout_on = json_date_to_datetime(event_task['timeout_on'])
+        process_run_timeout(event_task['run'], timeout_on)
+
     else:
         raise Exception("Unexpected event type: %s" % event_task)
 
@@ -257,3 +274,13 @@ def purge_broadcasts_task():
                 broadcast.msgs.filter(purged=False).update(purged=True)
                 broadcast.purged = True
                 broadcast.save(update_fields=['purged'])
+
+
+@task(track_started=True, name="squash_systemlabels")
+def squash_systemlabels():
+    r = get_redis_connection()
+
+    key = 'squash_systemlabels'
+    if not r.get(key):
+        with r.lock(key, timeout=900):
+            SystemLabel.squash_counts()

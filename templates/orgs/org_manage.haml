@@ -14,8 +14,12 @@
 
         .num-credits {
           text-align:right;
-          font-size:22px;
-          font-weight:100;
+
+          a {
+            color: #333;
+            font-size:22px;
+            font-weight:100;
+          }
         }
 
         .used-pct {
@@ -29,6 +33,10 @@
           &.used-alert {
             color: @flat-mutedred;
           }
+        }
+
+        .suspended {
+          color: @flat-mutedred;
         }
 
         .table td {
@@ -79,14 +87,6 @@
 -block extra-script
   {{block.super}}
 
-  :javascript
-    $(document).ready(function() {
-      $('.num-credits').each(function() {
-        $(this).text(parseInt($(this).text().strip()).toLocaleString());
-      });
-    });
-
-
 -block pre-table
   .quick-searches
     -if search == ""
@@ -94,6 +94,9 @@
         All
     -else
       %a{class:'quick', href:'?search='} All
+    |&nbsp;
+    %a{class:'quick', href:'?search="STATUS": "suspended"'}><
+      Suspended
 
     -for s in searches
       |

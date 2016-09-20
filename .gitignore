@@ -29,6 +29,7 @@ static/javascripts/
 temba/settings.py
 temba/smartmin
 temba.db
+smartmin
 
 
 # Exclude media folder except files used for import testing
@@ -110,3 +111,8 @@ textit
 conf/Dockerrun.aws.json
 conf/nginx.rapidpro.conf
 conf/deploy.zip
+
+# Vagrant/Ansible
+.vagrant/
+ansible/vendor/
+ansible/site.retry

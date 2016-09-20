@@ -1,9 +1,11 @@
+from __future__ import unicode_literals
+
+import time
+
+from django.conf import settings
 from django.core.urlresolvers import resolve
 from django.http import HttpResponseRedirect
-from django.template import RequestContext, loader
-import time
 from orgs.context_processors import user_group_perms_processor
-from django.conf import settings
 
 
 class FormaxMixin(object):
@@ -29,7 +31,7 @@ class Formax(object):
         context = user_group_perms_processor(self.request)
         self.org = context['user_org']
 
-    def add_section(self, name, url, icon, action='formax', button='Save'):
+    def add_section(self, name, url, icon, action='formax', button='Save', nobutton=False, dependents=None):
         resolver = resolve(url)
         self.request.META['HTTP_X_FORMAX'] = 1
         self.request.META['HTTP_X_PJAX'] = 1
@@ -46,7 +48,7 @@ class Formax(object):
         if not isinstance(response, HttpResponseRedirect):
             response.render()
             self.sections.append(dict(name=name, url=url, response=response.content,
-                                      icon=icon, action=action, button=button))
+                                      icon=icon, action=action, button=button, nobutton=nobutton, dependents=dependents))
 
         if settings.DEBUG:
             print "%s took: %f" % (url, time.time() - start)

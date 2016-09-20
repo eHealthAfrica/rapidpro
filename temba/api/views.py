@@ -3,13 +3,15 @@ from __future__ import absolute_import, unicode_literals
 import requests
 
 from datetime import timedelta
-from urlparse import parse_qs
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
+from django.utils.translation import ugettext_lazy as _
 from django.views.generic import View
-from smartmin.views import SmartTemplateView, SmartReadView, SmartListView
-from temba.api.models import WebHookEvent, WebHookResult
+from smartmin.views import SmartTemplateView, SmartReadView, SmartListView, SmartView
+from temba.channels.models import ChannelEvent
 from temba.orgs.views import OrgPermsMixin
+from urlparse import parse_qs
+from .models import WebHookEvent, WebHookResult, APIToken, Resthook
 
 
 def webhook_status_processor(request):
@@ -33,6 +35,17 @@ def webhook_status_processor(request):
     return status
 
 
+class RefreshAPITokenView(OrgPermsMixin, SmartView, View):
+    """
+    Simple view that refreshes the API token for the user/org when POSTed to
+    """
+    permission = 'api.apitoken_refresh'
+
+    def post(self, request, *args, **kwargs):
+        token = APIToken.get_or_create(request.user.get_org(), request.user, refresh=True)
+        return JsonResponse(dict(token=token.key))
+
+
 class WebHookEventMixin(OrgPermsMixin):
     def get_status(self, obj):
         return obj.get_status_display()
@@ -48,7 +61,7 @@ class WebHookEventMixin(OrgPermsMixin):
 class WebHookEventListView(WebHookEventMixin, SmartListView):
     model = WebHookEvent
     fields = ('event', 'status', 'channel', 'tries', 'created_on')
-    title = "Recent WebHook Events"
+    title = _("Recent WebHook Events")
     template_name = 'api/webhookevent_list.html'
     default_order = ('-created_on',)
     permission = 'api.webhookevent_list'
@@ -64,19 +77,19 @@ class WebHookEventReadView(WebHookEventMixin, SmartReadView):
     fields = ('event', 'status', 'channel', 'tries', 'next_attempt')
     template_name = 'api/webhookevent_read.html'
     permission = 'api.webhookevent_read'
-    field_config = { 'next_attempt': dict(label="Next Delivery"), 'tries': dict(label="Attempts") }
+    field_config = {'next_attempt': dict(label=_("Next Delivery")), 'tries': dict(label=_("Attempts"))}
 
-    def get_next_attempt(self, obj): # pragma: no cover
+    def get_next_attempt(self, obj):  # pragma: no cover
         if obj.next_attempt:
-            return "Around %s" % obj.next_attempt
+            return _("Around %s") % obj.next_attempt
         else:
             if obj.try_count == 3:
-                return "Never, three attempts errored, failed permanently"
+                return _("Never, three attempts errored, failed permanently")
             else:
                 if obj.status == 'C':
-                    return "Never, event delivered successfully"
+                    return _("Never, event delivered successfully")
                 else:
-                    return "Never, event deliverey failed permanently"
+                    return _("Never, event delivery failed permanently")
 
     def get_context_data(self, *args, **kwargs):
         context = super(WebHookEventReadView, self).get_context_data(*args, **kwargs)
@@ -86,12 +99,12 @@ class WebHookEventReadView(WebHookEventMixin, SmartReadView):
 
 
 class WebHookTunnelView(View):
-    http_method_names = ['post',]
+    http_method_names = ['post']
 
     def post(self, request):
         try:
-            if not 'url' in request.POST or not 'data' in request.POST:
-                return HttpResponse("Must include both 'url' and 'data' parameters.", status=400)
+            if 'url' not in request.POST or 'data' not in request.POST:
+                return HttpResponse(_("Must include both 'url' and 'data' parameters."), status=400)
 
             url = request.POST['url']
             data = request.POST['data']
@@ -152,10 +165,10 @@ class WebHookSimulatorView(SmartTemplateView):
         fields.append(dict(name="duration", help="The duration of the call (always 0 for missed calls)", default="0"))
         fields.append(dict(name="time", help="When this event was received by the channel in ECMA-162 format", default="2013-01-21T22:34:00.123"))
 
-        mo_call = dict(event="mo_call", title="Sent when your channel receives an incoming call that was picked up", fields=fields, color='blue')
-        mo_miss = dict(event="mo_miss", title="Sent when your channel receives an incoming call that was missed", fields=fields, color='blue')
-        mt_call = dict(event="mt_call", title="Sent when your channel places an outgoing call that was connected", fields=fields, color='blue')
-        mt_miss = dict(event="mt_miss", title="Sent when your channel places an outgoing call that was not connected", fields=fields, color='blue')
+        mo_call = dict(event=ChannelEvent.TYPE_CALL_IN, title="Sent when your channel receives an incoming call that was picked up", fields=fields, color='blue')
+        mo_miss = dict(event=ChannelEvent.TYPE_CALL_IN_MISSED, title="Sent when your channel receives an incoming call that was missed", fields=fields, color='blue')
+        mt_call = dict(event=ChannelEvent.TYPE_CALL_OUT, title="Sent when your channel places an outgoing call that was connected", fields=fields, color='blue')
+        mt_miss = dict(event=ChannelEvent.TYPE_CALL_OUT_MISSED, title="Sent when your channel places an outgoing call that was not connected", fields=fields, color='blue')
 
         endpoints.append(mo_call)
         endpoints.append(mo_miss)
@@ -194,3 +207,11 @@ class WebHookSimulatorView(SmartTemplateView):
 
         context['endpoints'] = endpoints
         return context
+
+
+class ResthookList(OrgPermsMixin, SmartListView):
+    model = Resthook
+    permission = 'api.resthook_list'
+
+    def derive_queryset(self):
+        return Resthook.objects.filter(is_active=True, org=self.request.user.get_org()).order_by('slug')

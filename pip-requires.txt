@@ -1,7 +1,7 @@
 -e git+https://github.com/nyaruka/smartmin.git#egg=smartmin
 Django==1.8.5
 coverage==4.0.3
-django-celery==3.1.16
+django-celery==3.1.17
 django-compressor==1.5
 django-debug-toolbar==1.2.2
 django-digest==1.13
@@ -10,10 +10,11 @@ django-guardian
 -e git+http://github.com/nyaruka/django-modeltranslation.git#egg=django_modeltranslation-dev
 -e git+http://github.com/nyaruka/django-quickblocks.git#egg=django-quickblocks-dev
 django-rosetta==0.6.2
+flake8
 gunicorn==19.3.0
 pisa==3.0.33
 raven==4.0.4
-celery[redis]==3.1.18
+celery[redis]==3.1.23
 python-gcm
 pytz==2014.7
 hamlpy
@@ -22,7 +23,7 @@ django-redis==3.1.5
 redis==2.10.1
 BeautifulSoup
 xlutils
-phonenumbers==7.1.0
+phonenumbers
 django-countries==3.0.1
 djangorestframework
 djangorestframework-xml
@@ -58,5 +59,7 @@ twython
 enum34
 plivo
 rapidpro-expressions
+python-telegram-bot
 -e git+http://github.com/nyaruka/python-librato-bg.git#egg=librato_bg
 django-mptt==0.7.4
+

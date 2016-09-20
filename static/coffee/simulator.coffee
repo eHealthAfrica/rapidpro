@@ -3,18 +3,69 @@ moving_sim = false
 level_classes = {"I": "iinfo", "W": "iwarn", "E": "ierror"}
 
 window.updateSimulator = (data) ->
+  ussd = if window.ussd then "ussd" else ""
 
   $(".simulator-body").html ""
   i = 0
 
   $('.simulator-body').data('message-count', data.messages.length)
+
+  if data.ruleset
+    $('.simulator-footer .media-button').hide()
+
+    if data.ruleset.ruleset_type == 'wait_gps'
+      $('.simulator-footer .imessage').hide()
+      $('.simulator-footer .gps-button').show()
+    else if data.ruleset.ruleset_type == 'wait_photo'
+      $('.simulator-footer .imessage').hide()
+      $('.simulator-footer .photo-button').show()
+    else if data.ruleset.ruleset_type == 'wait_video'
+      $('.simulator-footer .imessage').hide()
+      $('.simulator-footer .video-button').show()
+    else if data.ruleset.ruleset_type == 'wait_audio'
+      $('.simulator-footer .imessage').hide()
+      $('.simulator-footer .audio-button').show()
+    else
+      $('.simulator-footer .imessage').show()
+  else
+    $('.simulator-footer .media-button').hide()
+    $('.simulator-footer .imessage').show()
+
+
   while i < data.messages.length
     msg = data.messages[i]
+
     model = (if (msg.model is "msg") then "imsg" else "ilog")
     level = (if msg.level? then level_classes[msg.level] else "")
     direction = (if (msg.direction is "O") then "from" else "to")
 
-    $(".simulator-body").append "<div class=\"" + model + " " + level + " " + direction + "\">" + msg.text + "</div>"
+    media_type = null
+    if msg.media
+      media_type = msg.media.split(':')[0]
+      if media_type == 'geo'
+        media_type = 'icon-pin_drop'
+      else
+        media_type = media_type.split('/')[0]
+        if media_type == 'image'
+          media_type = 'icon-photo_camera'
+        else if media_type == 'video'
+          media_type = 'icon-videocam'
+        else if media_type == 'audio'
+          media_type = 'icon-mic'
+
+    ele = "<div class=\"" + model + " " + level + " " + direction + " " + ussd
+    if media_type
+      ele += " media-msg"
+    ele += "\">"
+
+    if media_type
+      ele += "<span class=\"media-icon " + media_type + "\"></span>"
+    else
+      ele += msg.text
+
+    ele += "</div>"
+
+    $(".simulator-body").append(ele)
     i++
   $(".simulator-body").scrollTop $(".simulator-body")[0].scrollHeight
   $("#simulator textarea").val ""
@@ -75,21 +126,20 @@ checkForm = (newMessage) ->
   $(".simulator-body").css "height", "360px"
   return valid
 
-# process form
-processForm = (newMessage) ->
-  if checkForm(newMessage)
-
-
+processForm = (postData) ->
     # if we are currently saving to don't post message yet
     scope = $('html').scope('scope')
     if scope and scope.saving
       setTimeout ->
-        processForm(newMessage)
+        processForm(postData)
       , 500
       return
 
-    $.post(getSimulateURL(), JSON.stringify({ new_message: newMessage })).done (data) ->
+    $.post(getSimulateURL(), JSON.stringify(postData)).done (data) ->
 
+      # reset our form input
+      $('.simulator-footer .media-button').hide()
+      $('.simulator-footer .imessage').show()
       window.updateSimulator(data)
 
       # hide loading first
@@ -98,6 +148,21 @@ processForm = (newMessage) ->
 
     $("#simulator textarea").removeClass "error"
 
+sendMessage = (newMessage) ->
+  if checkForm(newMessage)
+    processForm({new_message: newMessage})
+
+sendPhoto = ->
+  processForm({new_photo: true})
+
+sendVideo = ->
+  processForm({new_video: true})
+
+sendAudio = ->
+  processForm({new_audio: true})
+
+sendGPS = ->
+  processForm({new_gps: true})
 
 fitSimToScreen = ->
   top = $(window).scrollTop()
@@ -197,6 +262,10 @@ window.resetSimulator = ->
   $(".simulator-body").html ""
   $(".simulator-body").append "<div class='ilog from'>One moment..</div>"
 
+  # reset our form input
+  $('.simulator-footer .media-button').hide()
+  $('.simulator-footer .imessage').hide()
+
   # if we are currently saving to don't post message yet
   scope = $('html').scope('scope')
   if scope and scope.saving
@@ -212,39 +281,56 @@ window.hangup = ->
   $(".simulator-body").html ""
   $.post(getSimulateURL(), JSON.stringify({ hangup:true })).done (data) ->
 
+appendMessage = (newMessage, ussd=false) ->
+  ussd = if ussd then "ussd " else ""
+  imsgDiv = '<div class=\"imsg ' + ussd + 'to post-message\"></div>'
+  $(imsgDiv).text(newMessage).appendTo(".simulator-body")
+  $("#simulator textarea").val ""
+  $(".simulator-loading").css "display", "block"
+  # $(".simulator-body").css "height", $(".simulator-body").height() - 25
+  $(".simulator-body").scrollTop $(".simulator-body")[0].scrollHeight
 
 #-------------------------------------
 # Event bindings
 #-------------------------------------
 
+$('#simulator .gps-button').on 'click', ->
+  sendGPS();
+
+$('#simulator .photo-button').on 'click', ->
+  sendPhoto()
+
+$('#simulator .video-button').on 'click', ->
+  sendVideo()
+
+$('#simulator .audio-button').on 'click', ->
+  sendAudio()
+
 # send new message to simulate
 $("#simulator .send-message").on "click", ->
   newMessage = $("#simulator textarea").val()
-  $(this).addClass "to-ignore"
-  processForm newMessage
+  $(this).addClass("to-ignore")
+  sendMessage(newMessage)
 
   # add the progress gif
-  if newMessage and newMessage.length <= 160
-    $("<div class=\"imsg to post-message\"></div>").text(newMessage).appendTo(".simulator-body")
-    $("#simulator textarea").val ""
-    $(".simulator-loading").css "display", "block"
-    # $(".simulator-body").css "height", $(".simulator-body").height() - 25
-    $(".simulator-body").scrollTop $(".simulator-body")[0].scrollHeight
+  if window.ussd and newMessage.length <= 182
+    appendMessage newMessage, true
+  else if newMessage.length <= 160
+    appendMessage newMessage
 
 # send new message on key press (enter)
 $("#simulator textarea").keypress (event) ->
   if event.which is 13
     event.preventDefault()
     newMessage = $("#simulator textarea").val()
-    processForm newMessage
+    sendMessage(newMessage)
 
     # add the progress gif
-    if newMessage and newMessage.length <= 160
-      $("<div class=\"imsg to post-message\"></div>").text(newMessage).appendTo(".simulator-body")
-      $("#simulator textarea").val ""
-      $(".simulator-loading").css "display", "block"
-      # $(".simulator-body").css "height", $(".simulator-body").height() - 25
-      $(".simulator-body").scrollTop $(".simulator-body")[0].scrollHeight
+    if newMessage
+      if window.ussd and newMessage.length <= 182
+        appendMessage newMessage, true
+      else if newMessage.length <= 160
+        appendMessage newMessage
 
 $("#show-simulator").hover ->
   if not moving_sim
