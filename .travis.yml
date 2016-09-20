@@ -9,13 +9,8 @@ services:
   - docker
 
 env:
-  DOCKER_COMPOSE_VERSION: 1.5.2
-
-before_install:
-  - sudo rm /usr/local/bin/docker-compose
-  - curl -L https://github.com/docker/compose/releases/download/${DOCKER_COMPOSE_VERSION}/docker-compose-`uname -s`-`uname -m` > docker-compose
-  - chmod +x docker-compose
-  - sudo mv docker-compose /usr/local/bin
+  DOCKER_IMAGE_REPO: 387526361725.dkr.ecr.eu-west-1.amazonaws.com
+  AWS_REGION: eu-west-1
 
 cache:
   directories:
@@ -23,9 +18,9 @@ cache:
 
 install:
   - pip install -r pip-deploy.txt
+  - sudo apt-get -qq install -y zip
 
 before_script:
-  - fab stage prebuild
   - docker-compose up -d rapidprodb
   - docker-compose up -d rapidproredis
   - docker-compose build rapidpro
