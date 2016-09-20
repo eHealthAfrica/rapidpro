@@ -299,9 +299,7 @@ TEMPLATE_DIRS = (os.path.join(PROJECT_DIR, '../templates'),)
 STATICFILES_DIRS = (os.path.join(PROJECT_DIR, '../static'), os.path.join(PROJECT_DIR, '../media'), )
 STATIC_ROOT = os.environ.get('STATIC_DIR', os.path.join(PROJECT_DIR, '../sitestatic'))
 COMPRESS_ROOT = os.environ.get('STATIC_DIR', os.path.join(PROJECT_DIR, '../sitestatic'))
-STATIC_ROOT = os.path.join(PROJECT_DIR, '../sitestatic')
 STATIC_URL = '/static/'
-# COMPRESS_ROOT = os.path.join(PROJECT_DIR, '../sitestatic')
 MEDIA_ROOT = os.path.join(PROJECT_DIR, '../media')
 MEDIA_URL = "/media/"
 
