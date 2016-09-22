@@ -7,7 +7,8 @@ show_help() {
     echo """
     Commands
     manage     : Invoke django manage.py commands
-    setupdb  : Create empty database for rapidpro, will still need migrations run
+    setuplocaldb  : Create local database
+    setupproddb : Create prod database
     """
 }
 
@@ -32,6 +33,14 @@ setup_prod_db() {
     python manage.py migrate
 }
 
+start_app() {
+    cd /code
+    python manage.py collectstatic --noinput
+    chown www-data:www-data -R /var/www/static/
+    /usr/bin/uwsgi --ini /code/conf/uwsgi.ini
+
+}
+
 case "$1" in
     manage )
         cd /code/
@@ -44,10 +53,12 @@ case "$1" in
         setup_prod_db
     ;;
     start )
-        cd /code
-        python manage.py collectstatic --noinput
-        /usr/local/bin/supervisord -c /etc/supervisor/supervisord.conf
-        nginx -g "daemon off;"
+        setuplocaldb
+        start_app
+    ;;
+    start_prod )
+        setup_prod_db
+        start_app
     ;;
     bash )
         bash

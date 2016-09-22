@@ -1,17 +1,17 @@
 branch-defaults:
   default:
-    environment: rapidproMaps-stage
+    environment: rapidpro-dev
   develop:
-    environment: rapidproMaps-stage
+    environment: rapidpro-dev
   master:
-    environment: rapidproMaps-stage
+    environment: rapidpro-dev
 global:
-  application_name: rapidpro-maps
+  application_name: rapidpro
   default_ec2_keyname: aws-deploy
-  default_platform: 64bit Amazon Linux 2015.09 v2.0.6 running Multi-container Docker
-    1.7.1 (Generic)
-  default_region: eu-central-1
+  default_platform: 64bit Amazon Linux 2016.03 v2.1.0 running Multi-container Docker
+    1.9.1 (Generic)
+  default_region: eu-west-1
   profile: null
   sc: git
 deploy:
-    artifact: conf/deploy.zip
+    artifact: tmp/deploy.zip

@@ -1,23 +1,42 @@
-rapidprodb:
-  image: "mdillon/postgis"
+version: "2"
 
-rapidproredis:
+volumes:
+  static_content:
+    driver: local
+
+services:
+  rapidprodb:
+    image: "mdillon/postgis"
+
+  rapidproredis:
     image: "redis"
 
-rapidpro:
-  build: .
-  environment:
-      RDS_HOSTNAME: "rapidprodb"
-      RDS_USERNAME: "postgres"
-      RDS_PASSWORD: ""
-      RDS_PORT: ""
-      RDS_DB_NAME: "rapidpro"
-      REDISHOST: "rapidproredis"
-      STATIC_DIR: "/var/www/static/"
-  command: start 
-  ports:
-    - "5000:5000"
-    - "8000:8000"
-  links:
-    - rapidprodb
-    - rapidproredis
+  rapidpro:
+    build: .
+    environment:
+        RDS_HOSTNAME: "rapidprodb"
+        RDS_USERNAME: "postgres"
+        RDS_PASSWORD: ""
+        RDS_PORT: ""
+        RDS_DB_NAME: "rapidpro"
+        REDISHOST: "rapidproredis"
+        STATIC_DIR: "/var/www/static/"
+    command: start
+    ports:
+      - "5000:5000"
+      - "8000:8000"
+    links:
+      - rapidprodb
+      - rapidproredis
+    volumes:
+      - static_content:/var/www/static/
+
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - static_content:/var/www/static/
+      - ./conf/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    links:
+      - rapidpro
+    ports:
+      - "80:80"

@@ -27,11 +27,8 @@ Install Requirements:
 Run 
 
 ```sh
-docker-compose up -d db
-docker-compose up -d redis
-docker-compose build rapidpro
-docker-compose run rapidpro entrypoint.sh setupdb
-docker-compose up rapidpro
+docker-compose build
+docker-compose up
 ```
 
 Then visit localhost:5000 (linux) or run
