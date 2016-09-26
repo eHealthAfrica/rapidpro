@@ -37,8 +37,7 @@ start_app() {
     cd /code
     python manage.py collectstatic --noinput
     chown www-data:www-data -R /var/www/static/
-    /usr/bin/uwsgi --ini /code/conf/uwsgi.ini
-
+    supervisord -c /etc/supervisor/supervisord.conf -n
 }
 
 case "$1" in
@@ -53,7 +52,7 @@ case "$1" in
         setup_prod_db
     ;;
     start )
-        setuplocaldb
+        setup_local_db
         start_app
     ;;
     start_prod )

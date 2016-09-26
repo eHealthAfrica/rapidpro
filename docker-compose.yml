@@ -29,12 +29,12 @@ services:
       - rapidprodb
       - rapidproredis
     volumes:
-      - static_content:/var/www/static/
+      - static_content:/var/www/static/:rw
 
   nginx:
     image: nginx:alpine
     volumes:
-      - static_content:/var/www/static/
+      - static_content:/var/www/static/:ro
       - ./conf/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     links:
       - rapidpro

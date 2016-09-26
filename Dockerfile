@@ -14,6 +14,7 @@ RUN /tmp/ppa-remove
 
 RUN apt-get update -qq
 
+
 ADD conf/apt-packages.txt /tmp/apt-packages.txt
 RUN cat /tmp/apt-packages.txt | xargs apt-get --yes --force-yes install
 
@@ -31,9 +32,12 @@ WORKDIR /code
 COPY ./ /code/
 RUN cp /code/temba/settings.py.docker /code/temba/settings.py
 
-ADD conf/entrypoint.sh /usr/local/bin/entrypoint.sh 
+ADD conf/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
+RUN mkdir -p /etc/supervisor/conf.d /var/log/supervisor/
+RUN ln -sf /code/conf/supervisor.rapidpro.conf /etc/supervisor/conf.d/rapidpro.conf
+RUN ln -sf /code/conf/supervisord.conf /etc/supervisor/supervisord.conf
 RUN ln -sf /usr/bin/nodejs /usr/bin/node
 
 EXPOSE 5000
