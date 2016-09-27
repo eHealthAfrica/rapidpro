@@ -109,9 +109,8 @@ target/
 textit
 
 # Deployment data
-conf/Dockerrun.aws.json
-conf/nginx.rapidpro.conf
-conf/deploy.zip
+tmp
+
 
 # Vagrant/Ansible
 .vagrant/
