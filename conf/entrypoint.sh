@@ -37,6 +37,7 @@ start_app() {
     cd /code
     python manage.py collectstatic --noinput
     chown www-data:www-data -R /var/www/static/
+    chmod 755 -R /var/www/static/
     supervisord -c /etc/supervisor/supervisord.conf -n
 }
 
