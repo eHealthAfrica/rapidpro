@@ -7,9 +7,8 @@ postgresql-client-9.3
 postgresql-server-dev-9.3
 postgresql-9.3-postgis-2.1
 binutils 
-libproj-dev 
+libproj-dev
 libffi-dev
-libssl-dev
 libxml2-dev
 libxslt1-dev
 libncurses5-dev
@@ -17,7 +16,6 @@ gdal-bin
 uwsgi
 uwsgi-plugin-python
 npm
-nginx
 curl
 vim
 tcpdump

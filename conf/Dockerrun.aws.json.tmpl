@@ -1,16 +1,34 @@
 {
   "AWSEBDockerrunVersion": 2,
+
+  "volumes": [
+    {
+      "name": "nginx-conf",
+      "host": {
+        "sourcePath": "/etc/nginx"
+      }
+    },
+    {
+      "name": "static-content",
+      "host": {
+        "sourcePath": "/var/www/static"
+      }
+    }
+  ],
+
   "containerDefinitions": [
     {
-      "name": "rapidpro-app",
-      "image": "{{ DOCKER_IMAGE_REPO }}/rapidpro:{{ tag }}",
+      "name": "${PROJECT_NAME}",
+      "image": "${DOCKER_IMAGE_REPO}/${PROJECT_NAME}:${TAG}",
       "essential": true,
-      "memory": 2000,
-      "portMappings": [
-        {
-          "hostPort": 80,
-          "containerPort": 5000
-        }
+      "memory": 2048,
+      "command": [ "start_prod" ],
+      "mountPoints": [
+      {
+        "sourceVolume": "static-content",
+        "containerPath": "/var/www/static",
+        "readOnly": false
+      }
       ],
       "environment": [
         {
@@ -19,18 +37,69 @@
         },
         {
             "name": "REDISHOST",
-            "value": "rapidproredis"
+            "value": "${PROJECT_NAME}-redis"
         }
       ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "${BEANSTALK_ENV}",
+          "awslogs-region": "${AWS_REGION}",
+          "awslogs-stream-prefix": "${PROJECT_NAME}"
+        }
+      },
       "links": [
-          "rapidproredis"
+          "${PROJECT_NAME}-redis"
       ]
     },
     {
-      "name": "rapidproredis",
+      "name": "${PROJECT_NAME}-redis",
       "image": "redis",
       "essential": true,
-      "memory": 1000
+      "memory": 1024,
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "${BEANSTALK_ENV}",
+          "awslogs-region": "${AWS_REGION}",
+          "awslogs-stream-prefix": "${PROJECT_NAME}"
+        }
+      }
+    },
+    {
+      "name": "nginx",
+      "image": "nginx:alpine",
+      "essential": true,
+      "memory": 256,
+      "mountPoints": [
+      {
+        "sourceVolume": "nginx-conf",
+        "containerPath": "/etc/nginx/conf.d/",
+        "readOnly": true
+      },
+      {
+        "sourceVolume": "static-content",
+        "containerPath": "/var/www/static",
+        "readOnly": true
+      }
+      ],
+      "portMappings": [
+        {
+          "hostPort": 80,
+          "containerPort": 80
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "${BEANSTALK_ENV}",
+          "awslogs-region": "${AWS_REGION}",
+          "awslogs-stream-prefix": "${PROJECT_NAME}"
+        }
+      },
+      "links": [
+        "${PROJECT_NAME}"
+      ]
     }
   ]
 }
