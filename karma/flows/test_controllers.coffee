@@ -232,21 +232,40 @@ describe 'Controllers:', ->
       loadFavoritesFlow()
       ruleset = flowService.flow.rule_sets[0]
 
-      # three rules and our other
-      expect(ruleset.rules.length).toBe(4)
+      # five rules and our other
+      expect(ruleset.rules.length).toBe(6)
 
       editRules ruleset, (scope) ->
         scope.formData.hasTimeout = true
         scope.formData.timeout = scope.formData.timeoutOptions[5]
 
-      # now we have three rules, our other, and a timeout
+      # now we have five rules, our other, and a timeout
       ruleset = flowService.flow.rule_sets[0]
-      expect(ruleset.rules.length).toBe(5)
+      expect(ruleset.rules.length).toBe(7)
 
       # checkout our timeout rule as the right settings
       lastRule = ruleset.rules[ruleset.rules.length - 1]
       expect(lastRule['test']['type']).toBe('timeout')
       expect(lastRule['test']['minutes']).toBe(10)
+
+      # simulate open ended questions with timeout
+      editRules ruleset, (scope) ->
+        scope.ruleset.ruleset_type = 'wait_message'
+        scope.ruleset.rules = []
+        scope.formData.hasTimeout = true
+        scope.formData.timeout = scope.formData.timeoutOptions[5]
+
+      # now should have 2 rules; All responses and the timeout
+      ruleset = flowService.flow.rule_sets[0]
+      expect(ruleset.rules.length).toBe(2)
+
+      allResponseRule = ruleset.rules[0]
+      timeoutRule = ruleset.rules[1]
+
+      expect(allResponseRule['test']['type']).toBe('true')
+      expect(allResponseRule.category.base).toBe('All Responses')
+      expect(timeoutRule['test']['type']).toBe('timeout')
+      expect(timeoutRule['test']['minutes']).toBe(10)
 
     it 'should save group split rulesets', ->
       loadFavoritesFlow()
@@ -407,6 +426,9 @@ describe 'Controllers:', ->
         scope.ruleset.ruleset_type = 'webhook'
         scope.formData.webhook = 'http://www.nyaruka.com'
         scope.formData.webhook_action = 'POST'
+        scope.formData.webhook_headers = [{name: '', key: ''}]
+        scope.webhook_headers_name[0] = 'Authorization'
+        scope.webhook_headers_value[0] = 'Token 12345'
 
       ruleset = flowService.flow.rule_sets[0]
       expect(ruleset.ruleset_type).toBe('webhook')
@@ -417,6 +439,8 @@ describe 'Controllers:', ->
       # our config should have a url
       expect(ruleset.config.webhook).toBe('http://www.nyaruka.com')
       expect(ruleset.config.webhook_action).toBe('POST')
+      expect(ruleset.config.webhook_headers[0]['name']).toBe('Authorization')
+      expect(ruleset.config.webhook_headers[0]['value']).toBe('Token 12345')
 
       # do it again, make sure we have the right number of rules
       editRules ruleset, (scope) ->
@@ -493,29 +517,29 @@ describe 'Controllers:', ->
 
       loadFavoritesFlow()
 
-      # our first ruleset, starts off with four rules
+      # our first ruleset, starts off with five rules
       ruleset = flowService.flow.rule_sets[0]
-      expect(ruleset.rules.length).toBe(4)
+      expect(ruleset.rules.length).toBe(6)
 
       # make our last "true" rule route to the entry node
-      ruleset.rules[3].destination = '127f3736-77ce-4006-9ab0-0c07cea88956'
+      ruleset.rules[4].destination = '127f3736-77ce-4006-9ab0-0c07cea88956'
 
       # click on the ruleset and then ok
       editRules(ruleset, (scope) -> scope.ruleset.ruleset_type = 'wait_message')
 
       # our route should still be there
       ruleset = flowService.flow.rule_sets[0]
-      expect(ruleset.rules[3].destination).toBe('127f3736-77ce-4006-9ab0-0c07cea88956')
+      expect(ruleset.rules[4].destination).toBe('127f3736-77ce-4006-9ab0-0c07cea88956')
 
       # click on ruleset, then check timeout option
       editRules(ruleset, (scope) -> scope.formData.hasTimeout = true)
 
-      # should now have 5 rules to account for the timeout
+      # should now have 6 rules to account for the timeout
       ruleset = flowService.flow.rule_sets[0]
-      expect(ruleset.rules.length).toBe(5)
+      expect(ruleset.rules.length).toBe(7)
 
       # but our route should still be there
-      expect(ruleset.rules[3].destination).toBe('127f3736-77ce-4006-9ab0-0c07cea88956')
+      expect(ruleset.rules[4].destination).toBe('127f3736-77ce-4006-9ab0-0c07cea88956')
 
     it 'should maintain connections on prescribed rulesets', ->
 
@@ -560,11 +584,13 @@ describe 'Controllers:', ->
         modalScope = $modalStack.getTop().value.modalScope
 
         expect(modalScope.validActionFilter(getAction('reply'))).toBe(true)
+        expect(modalScope.validActionFilter(getAction('end_ussd'))).toBe(false)
 
         # ivr only
         expect(modalScope.validActionFilter(getAction('say'))).toBe(false)
         expect(modalScope.validActionFilter(getAction('play'))).toBe(false)
         expect(modalScope.validActionFilter(getAction('api'))).toBe(true)
+        expect(modalScope.validActionFilter(getAction('end_ussd'))).toBe(false)
 
         # pretend we are a voice flow
         flowService.flow.flow_type = 'V'
@@ -572,6 +598,7 @@ describe 'Controllers:', ->
         expect(modalScope.validActionFilter(getAction('say'))).toBe(true)
         expect(modalScope.validActionFilter(getAction('play'))).toBe(true)
         expect(modalScope.validActionFilter(getAction('api'))).toBe(true)
+        expect(modalScope.validActionFilter(getAction('end_ussd'))).toBe(false)
 
         # now try a survey
         flowService.flow.flow_type = 'S'
@@ -579,6 +606,7 @@ describe 'Controllers:', ->
         expect(modalScope.validActionFilter(getAction('say'))).toBe(false)
         expect(modalScope.validActionFilter(getAction('play'))).toBe(false)
         expect(modalScope.validActionFilter(getAction('api'))).toBe(false)
+        expect(modalScope.validActionFilter(getAction('end_ussd'))).toBe(false)
 
         # USSD flow
         flowService.flow.flow_type = 'U'
@@ -586,6 +614,7 @@ describe 'Controllers:', ->
         expect(modalScope.validActionFilter(getAction('say'))).toBe(false)
         expect(modalScope.validActionFilter(getAction('play'))).toBe(false)
         expect(modalScope.validActionFilter(getAction('api'))).toBe(false)
+        expect(modalScope.validActionFilter(getAction('end_ussd'))).toBe(true)
 
       $timeout.flush()
 

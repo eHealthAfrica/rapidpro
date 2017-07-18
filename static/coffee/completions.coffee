@@ -103,7 +103,7 @@ class window.AutoComplete
 
         beforeInsert: (value, item) ->
 
-          completionChars = new RegExp("([A-Za-z_\d\.]*)$", 'gi')
+          completionChars = new RegExp("([A-Za-z_\\d\.]*)$", 'gi')
           valueForName = ""
           match = completionChars.exec(value)
           if match
@@ -111,7 +111,7 @@ class window.AutoComplete
 
           hasMore = false
           for option in ac.variables
-            hasMore = valueForName and option.name.indexOf(valueForName) is 0 and option.name isnt valueForName
+            hasMore = valueForName and option.name.indexOf(valueForName + '.') is 0 and option.name isnt valueForName
             if hasMore
               break
 
@@ -228,25 +228,25 @@ class window.AutoComplete
     if variables
       @completions = variables.concat(@functions)
 
-    $inputor = $(selector).atwho(@config)
-    $inputor.atwho('run')
+    inputor = $(selector).atwho(@config)
+    inputor.atwho('run')
 
     # when an option is selected, insert the text and update the caret
-    $inputor.on 'inserted.atwho', (atEvent, li, browserEvent) ->
-      content = $inputor.val()
-      caretPos = $inputor.caret 'pos'
+    inputor.on 'inserted.atwho', (atEvent, li, browserEvent) ->
+      content = inputor.val()
+      caretPos = inputor.caret 'pos'
       subtext = content.slice 0, caretPos
       if subtext.match(/\(\)$/) isnt null
-        $inputor.caret('pos', subtext.length - 1)
+        inputor.caret('pos', subtext.length - 1)
 
-    # do react to clicking inside expressions
-    $inputor.off('click.atwhoInner').on 'click.atwhoInner', (e) ->
-      $.noop()
+    # hide autocomplete if user clicks in the input
+    inputor.off('click.atwhoInner').on 'click.atwhoInner', (e) ->
+      inputor.atwho('hide')
 
     # check for possible inserts when a key is pressed
-    $inputor.off('keyup.atwhoInner').on 'keyup.atwhoInner', (e) ->
+    inputor.off('keyup.atwhoInner').on 'keyup.atwhoInner', (e) ->
 
-      atwho = $inputor.data('atwho')
+      atwho = inputor.data('atwho')
 
       if atwho
         app = atwho.setContextFor('@')
@@ -260,11 +260,11 @@ class window.AutoComplete
           else
             app.onKeyup(e)
 
-        content = $inputor.val()
-        caretPos = $inputor.caret 'pos'
+        content = inputor.val()
+        caretPos = inputor.caret 'pos'
         subtext = content.slice(0, caretPos)
         nextPart = content.slice(caretPos)
         if subtext.slice(-2) is '@(' and (not nextPart or nextPart.slice(0,1) is not ')')
           text = subtext + ')' + content.slice(caretPos + 1)
-          $inputor.val(text)
-          $inputor.caret('pos', caretPos)
+          inputor.val(text)
+          inputor.caret('pos', caretPos)

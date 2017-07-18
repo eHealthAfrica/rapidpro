@@ -1,46 +1,31 @@
-from __future__ import unicode_literals
+from __future__ import print_function, unicode_literals
 
 import calendar
 import json
-import pytz
-import random
 import datetime
 import locale
-import resource
 
+import pytz
+import random
+import regex
+import re
+import resource
+import string
+import six
+
+from collections import Counter
 from dateutil.parser import parse
 from decimal import Decimal
 from django.conf import settings
-from django.db import connection, transaction
+from django.db import transaction
 from django.utils import timezone
 from django.utils.text import slugify
 from django.utils.timezone import is_aware
-from django.http import HttpResponse
 from django_countries import countries
 from itertools import islice
 
-DEFAULT_DATE = timezone.now().replace(day=1, month=1, year=1)
+DEFAULT_DATE = datetime.datetime(1, 1, 1, 0, 0, 0, 0, None)
 MAX_UTC_OFFSET = 14 * 60 * 60  # max offset postgres supports for a timezone
-
-# these are not mapped by pytz.country_timezones
-INITIAL_TIMEZONE_COUNTRY = {
-    'US/Hawaii': 'US',
-    'US/Alaska': 'US',
-    'Canada/Pacific': 'CA',
-    'US/Pacific': 'US',
-    'Canada/Mountain': 'CA',
-    'US/Arizona': 'US',
-    'US/Mountain': 'US',
-    'Canada/Central': 'CA',
-    'US/Central': 'US',
-    'America/Montreal': 'CA',
-    'Canada/Eastern': 'CA',
-    'US/Eastern': 'US',
-    'Canada/Atlantic': 'CA',
-    'Canada/Newfoundland': 'CA',
-    'GMT': '',
-    'UTC': ''
-}
 
 
 TRANSFERTO_COUNTRY_NAMES = {
@@ -96,21 +81,35 @@ def str_to_datetime(date_str, tz, dayfirst=True, fill_time=True):
         return None
 
     try:
-        output_date = None
         if fill_time:
             date = parse(date_str, dayfirst=dayfirst, fuzzy=True, default=DEFAULT_DATE)
-            if date != DEFAULT_DATE:
-                output_date = parse(date_str, dayfirst=dayfirst, fuzzy=True, default=timezone.now().astimezone(tz))
+
+            # get the local time and hour
+            default = timezone.now().astimezone(tz).replace(tzinfo=None)
+
+            # we parsed successfully
+            if date.tzinfo or date != DEFAULT_DATE:
+                output_date = parse(date_str, dayfirst=dayfirst, fuzzy=True, default=default)
+
+                # localize it if we don't have a timezone
+                if not output_date.tzinfo:
+                    output_date = tz.localize(output_date)
+
+                # if we aren't UTC, normalize to take care of any DST weirdnesses
+                elif output_date.tzinfo.tzname(output_date) != 'UTC':
+                    output_date = tz.normalize(output_date)
+
             else:
                 output_date = None
         else:
-            default = datetime.datetime(1, 1, 1, 0, 0, 0, 0, None)
+            default = DEFAULT_DATE
             output_date = parse(date_str, dayfirst=dayfirst, fuzzy=True, default=default)
-            output_date = tz.localize(output_date)  # localize in timezone
+            output_date = tz.localize(output_date)
 
             # only return date if it actually got parsed
             if output_date.year == 1:
                 output_date = None
+
     except Exception:
         output_date = None
 
@@ -179,18 +178,28 @@ def ms_to_datetime(ms):
     return dt.replace(microsecond=(ms % 1000) * 1000).replace(tzinfo=pytz.utc)
 
 
+def datetime_to_epoch(dt):
+    """
+    Converts a datetime to seconds since 1970
+    """
+    utc_naive = dt.replace(tzinfo=None) - dt.utcoffset()
+    return (utc_naive - datetime.datetime(1970, 1, 1)).total_seconds()
+
+
+def date_to_utc_range(d, org):
+    """
+    Converts a date in the given org's timezone, to a range of datetimes in UTC
+    """
+    local_midnight = org.timezone.localize(datetime.datetime.combine(d, datetime.time(0, 0)))
+    utc_midnight = local_midnight.astimezone(pytz.UTC)
+    return utc_midnight, utc_midnight + datetime.timedelta(days=1)
+
+
 def str_to_bool(text):
     """
     Parses a boolean value from the given text
     """
     return text and text.lower() in ['true', 'y', 'yes', '1']
-
-
-def build_json_response(json_dict, status=200):
-    """
-    Helper function to build JSON responses form dictionaries.
-    """
-    return HttpResponse(json.dumps(json_dict), status=status, content_type='application/json')
 
 
 def percentage(numerator, denominator):
@@ -212,7 +221,7 @@ def format_decimal(val):
     elif val == 0:
         return '0'
 
-    val = unicode(val)
+    val = six.text_type(val)
 
     if '.' in val:
         val = val.rstrip('0').rstrip('.')  # e.g. 12.3000 -> 12.3
@@ -256,6 +265,7 @@ def get_dict_from_cursor(cursor):
     ]
 
 
+@six.python_2_unicode_compatible
 class DictStruct(object):
     """
     Wraps a dictionary turning it into a structure looking object. This is useful to 'mock' dictionaries
@@ -289,7 +299,7 @@ class DictStruct(object):
 
         self._values[item] = value
 
-    def __unicode__(self):
+    def __str__(self):
         return "%s [%s]" % (self._classname, self._values)
 
 
@@ -355,7 +365,7 @@ def datetime_decoder(d):
         pairs = d.items()
     result = []
     for k, v in pairs:
-        if isinstance(v, basestring):
+        if isinstance(v, six.string_types):
             try:
                 # The %f format code is only supported in Python >= 2.6.
                 # For Python <= 2.5 strip off microseconds
@@ -379,78 +389,6 @@ def json_to_dict(json_string):
     to Python objects. (you shouldn't do this with untrusted input)
     """
     return json.loads(json_string, object_hook=datetime_decoder)
-
-
-class PageableQuery(object):
-    """
-    Allows paging with Paginator of a raw SQL query
-    """
-    def __init__(self, query, order=(), params=()):
-        self.query = query
-        self.order = order
-        self.params = params
-        self._count = None
-
-    def __len__(self):
-        return self.count()
-
-    def __getitem__(self, item):
-        offset, stop, step = item.indices(self.count())
-        limit = stop - offset
-        return self.execute(offset, limit)
-
-    def execute(self, offset, limit):
-        cursor = connection.cursor()
-
-        if self.order:
-            ordering_clauses = [("%s DESC" % col[1:]) if col[0] == '-' else ("%s ASC" % col) for col in self.order]
-            query = "%s ORDER BY %s" % (self.query, ", ".join(ordering_clauses))
-        else:
-            query = self.query
-
-        query = "%s OFFSET %s LIMIT %s" % (query, offset, limit)
-        cursor.execute(query, self.params)
-        return get_dict_from_cursor(cursor)
-
-    def count(self):
-        if self._count is not None:
-            return self._count
-
-        cursor = connection.cursor()
-        cursor.execute("SELECT count(*) FROM (%s) s" % self.query, self.params)
-        self._count = cursor.fetchone()[0]
-        return self._count
-
-
-def non_atomic_when_eager(view_func):
-    """
-    Decorator which disables atomic requests for a view/dispatch function when celery is running in eager mode
-    """
-    if getattr(settings, 'CELERY_ALWAYS_EAGER', False):
-        return transaction.non_atomic_requests(view_func)
-    else:
-        return view_func
-
-
-def non_atomic_gets(view_func):
-    """
-    Decorator which disables atomic requests for a view/dispatch function when the request method is GET. Works in
-    conjunction with the NonAtomicGetsMiddleware.
-    """
-    view_func._non_atomic_gets = True
-    return view_func
-
-
-def timezone_to_country_code(tz):
-    country_timezones = pytz.country_timezones
-
-    timezone_country = INITIAL_TIMEZONE_COUNTRY
-    for countrycode in country_timezones:
-        timezones = country_timezones[countrycode]
-        for zone in timezones:
-            timezone_country[zone] = countrycode
-
-    return timezone_country.get(tz, '')
 
 
 def splitting_getlist(request, name, default=None):
@@ -484,10 +422,10 @@ def print_max_mem_usage(msg=None):
         msg = "Max usage: "
 
     locale.setlocale(locale.LC_ALL, '')
-    print
-    print "=" * 80
-    print msg + locale.format("%d", resource.getrusage(resource.RUSAGE_SELF).ru_maxrss, grouping=True)
-    print "=" * 80
+    print("")
+    print("=" * 80)
+    print(msg + locale.format("%d", resource.getrusage(resource.RUSAGE_SELF).ru_maxrss, grouping=True))
+    print("=" * 80)
 
 
 def get_country_code_by_name(name):
@@ -497,3 +435,71 @@ def get_country_code_by_name(name):
         code = TRANSFERTO_COUNTRY_NAMES.get(name, None)
 
     return code if code else None
+
+
+def clean_string(string_text):
+    if string_text is None:
+        return string_text
+
+    rexp = regex.compile(r'[\000-\010]|[\013-\014]|[\016-\037]', flags=regex.MULTILINE | regex.UNICODE | regex.V0)
+
+    matches = 1
+    while matches:
+        (string_text, matches) = rexp.subn('', string_text)
+
+    return string_text
+
+
+def on_transaction_commit(func):
+    """
+    Requests that the given function be called after the current transaction has been committed. However function will
+    be called immediately if CELERY_ALWAYS_EAGER is True or if there is no active transaction.
+    """
+    if getattr(settings, 'CELERY_ALWAYS_EAGER', False):
+        func()
+    else:
+        transaction.on_commit(func)
+
+
+def decode_base64(original):
+    """
+    Try to detect base64 messages by doing:
+    * Check divisible by 4
+    * check there's no whitespace
+    * check it's at least 60 characters
+    * check the decoded string contains at least 50% ascii
+
+    Returns decoded base64 or the original string
+    """
+    stripped = original.replace('\r', '').replace('\n', '').strip()
+
+    if len(stripped) < 60:
+        return original
+
+    if len(stripped) % 4 != 0:
+        return original
+
+    p = re.compile(r'^([a-zA-Z0-9+/=]{4})+$')
+    if not p.match(stripped[:-4]):
+        return original
+
+    decoded = original
+    try:
+        decoded = stripped.decode('base64', 'strict').decode('utf-8', 'ignore')
+        count = Counter(decoded)
+        letters = sum(count[letter] for letter in string.ascii_letters)
+        if float(letters) / len(decoded) < 0.5:
+            return original
+
+    except:
+        return original
+
+    return decoded
+
+
+def get_anonymous_user():
+    """
+    Returns the anonymous user, originally created by django-guardian
+    """
+    from django.contrib.auth.models import User
+    return User.objects.get(username=settings.ANONYMOUS_USER_NAME)

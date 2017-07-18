@@ -1,6 +1,5 @@
 from __future__ import unicode_literals
 
-import djcelery
 import iptools
 import os
 import sys
@@ -13,7 +12,6 @@ from django.utils.translation import ugettext_lazy as _
 # Default to debugging
 # -----------------------------------------------------------------------------------
 DEBUG = True
-TEMPLATE_DEBUG = DEBUG
 
 # -----------------------------------------------------------------------------------
 # Sets TESTING to True if this configuration is read during a unit test
@@ -23,7 +21,6 @@ TESTING = sys.argv[1:2] == ['test']
 if TESTING:
     PASSWORD_HASHERS = ('django.contrib.auth.hashers.MD5PasswordHasher',)
     DEBUG = False
-    TEMPLATE_DEBUG = False
 
 ADMINS = (
     ('RapidPro', 'code@yourdomain.io'),
@@ -42,6 +39,10 @@ EMAIL_HOST_USER = 'server@temba.io'
 DEFAULT_FROM_EMAIL = 'server@temba.io'
 EMAIL_HOST_PASSWORD = 'mypassword'
 EMAIL_USE_TLS = True
+
+# Used when sending email from within a flow and the user hasn't configured
+# their own SMTP server.
+FLOW_FROM_EMAIL = 'no-reply@temba.io'
 
 # where recordings and exports are stored
 AWS_STORAGE_BUCKET_NAME = 'dl-temba-io'
@@ -103,40 +104,65 @@ STATICFILES_FINDERS = (
 # Make this unique, and don't share it with anybody.
 SECRET_KEY = 'your own secret key'
 
-# List of callables that know how to import templates from various sources.
-TEMPLATE_LOADERS = (
-    'hamlpy.template.loaders.HamlPyFilesystemLoader',
-    'hamlpy.template.loaders.HamlPyAppDirectoriesLoader',
-    'django.template.loaders.filesystem.Loader',
-    'django.template.loaders.app_directories.Loader',
-    'django.template.loaders.eggs.Loader',
-)
-
 EMAIL_CONTEXT_PROCESSORS = ('temba.utils.email.link_components',)
 
-TEMPLATE_CONTEXT_PROCESSORS = (
-    'django.contrib.auth.context_processors.auth',
-    'django.core.context_processors.debug',
-    'django.core.context_processors.i18n',
-    'django.core.context_processors.media',
-    'django.core.context_processors.static',
-    'django.contrib.messages.context_processors.messages',
-    'django.core.context_processors.request',
-    'temba.context_processors.branding',
-    'temba.orgs.context_processors.user_group_perms_processor',
-    'temba.orgs.context_processors.unread_count_processor',
-    'temba.channels.views.channel_status_processor',
-    'temba.msgs.views.send_message_auto_complete_processor',
-    'temba.api.views.webhook_status_processor',
-    'temba.orgs.context_processors.settings_includer',
-)
+
+# -----------------------------------------------------------------------------------
+# Directory Configuration
+# -----------------------------------------------------------------------------------
+PROJECT_DIR = os.path.join(os.path.abspath(os.path.dirname(__file__)))
+LOCALE_PATHS = (os.path.join(PROJECT_DIR, '../locale'),)
+RESOURCES_DIR = os.path.join(PROJECT_DIR, '../resources')
+FIXTURE_DIRS = (os.path.join(PROJECT_DIR, '../fixtures'),)
+TESTFILES_DIR = os.path.join(PROJECT_DIR, '../testfiles')
+STATICFILES_DIRS = (os.path.join(PROJECT_DIR, '../static'), os.path.join(PROJECT_DIR, '../media'), )
+STATIC_ROOT = os.path.join(PROJECT_DIR, '../sitestatic')
+STATIC_URL = '/sitestatic/'
+COMPRESS_ROOT = os.path.join(PROJECT_DIR, '../sitestatic')
+MEDIA_ROOT = os.path.join(PROJECT_DIR, '../media')
+MEDIA_URL = "/media/"
+
+
+# -----------------------------------------------------------------------------------
+# Templates Configuration
+# -----------------------------------------------------------------------------------
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': [os.path.join(PROJECT_DIR, '../templates')],
+        'OPTIONS': {
+            'context_processors': [
+                'django.contrib.auth.context_processors.auth',
+                'django.template.context_processors.debug',
+                'django.template.context_processors.i18n',
+                'django.template.context_processors.media',
+                'django.template.context_processors.static',
+                'django.contrib.messages.context_processors.messages',
+                'django.template.context_processors.request',
+                'temba.context_processors.branding',
+                'temba.orgs.context_processors.user_group_perms_processor',
+                'temba.orgs.context_processors.unread_count_processor',
+                'temba.channels.views.channel_status_processor',
+                'temba.msgs.views.send_message_auto_complete_processor',
+                'temba.orgs.context_processors.settings_includer',
+            ],
+            'loaders': [
+                'temba.utils.haml.HamlFilesystemLoader',
+                'temba.utils.haml.HamlAppDirectoriesLoader',
+                'django.template.loaders.filesystem.Loader',
+                'django.template.loaders.app_directories.Loader',
+                'django.template.loaders.eggs.Loader'
+            ],
+            'debug': False if TESTING else DEBUG
+        },
+    },
+]
 
 if TESTING:
-    TEMPLATE_CONTEXT_PROCESSORS += ('temba.tests.add_testing_flag_to_context', )
+    TEMPLATES[0]['OPTIONS']['context_processors'] += ('temba.tests.add_testing_flag_to_context', )
 
 MIDDLEWARE_CLASSES = (
     'django.middleware.common.CommonMiddleware',
-    'temba.utils.middleware.DisableMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -145,7 +171,7 @@ MIDDLEWARE_CLASSES = (
     'temba.middleware.OrgTimezoneMiddleware',
     'temba.middleware.FlowSimulationMiddleware',
     'temba.middleware.ActivateLanguageMiddleware',
-    'temba.middleware.NonAtomicGetsMiddleware',
+    'temba.middleware.OrgHeaderMiddleware',
 )
 
 ROOT_URLCONF = 'temba.urls'
@@ -167,15 +193,14 @@ INSTALLED_APPS = (
     'django.contrib.staticfiles',
     'django.contrib.humanize',
     'django.contrib.gis',
-    'django_extensions',
-
-    # django sitemaps
     'django.contrib.sitemaps',
+    'django.contrib.postgres',
 
+    # Haml-like templates
+    'hamlpy',
+
+    # Redis cache
     'redis',
-
-    # mo-betta permission management
-    'guardian',
 
     # rest framework for api access
     'rest_framework',
@@ -186,19 +211,11 @@ INSTALLED_APPS = (
 
     # smartmin
     'smartmin',
-
-    # import tasks
     'smartmin.csv_imports',
-
-    # smartmin users
     'smartmin.users',
-    'modeltranslation',
 
-    # async tasks,
-    'djcelery',
-
-    # django-timezones
-    'timezones',
+    # django-timezone-field
+    'timezone_field',
 
     # temba apps
     'temba.assets',
@@ -216,6 +233,7 @@ INSTALLED_APPS = (
     'temba.utils',
     'temba.campaigns',
     'temba.ivr',
+    'temba.ussd',
     'temba.locations',
     'temba.values',
     'temba.airtime',
@@ -241,12 +259,19 @@ LOGGING = {
             'level': 'DEBUG',
             'class': 'logging.StreamHandler',
             'formatter': 'verbose'
-        }
+        },
+        'null': {
+            'class': 'logging.NullHandler',
+        },
     },
     'loggers': {
         'pycountry': {
             'level': 'ERROR',
             'handlers': ['console'],
+            'propagate': False,
+        },
+        'django.security.DisallowedHost': {
+            'handlers': ['null'],
             'propagate': False,
         },
         'django.db.backends': {
@@ -266,7 +291,7 @@ BRANDING = {
         'name': 'RapidPro',
         'org': 'UNICEF',
         'colors': dict(primary='#0c6596'),
-        'styles': ['brands/rapidpro/font/style.css', 'brands/rapidpro/less/style.less'],
+        'styles': ['brands/rapidpro/font/style.css'],
         'welcome_topup': 1000,
         'email': 'join@rapidpro.io',
         'support_email': 'support@rapidpro.io',
@@ -282,26 +307,10 @@ BRANDING = {
         'bundles': [],
         'welcome_packs': [dict(size=5000, name="Demo Account"), dict(size=100000, name="UNICEF Account")],
         'description': _("Visually build nationally scalable mobile applications from anywhere in the world."),
-        'credits': _("Copyright &copy; 2012-2015 UNICEF, Nyaruka. All Rights Reserved.")
+        'credits': _("Copyright &copy; 2012-2017 UNICEF, Nyaruka. All Rights Reserved.")
     }
 }
 DEFAULT_BRAND = 'rapidpro.io'
-
-# -----------------------------------------------------------------------------------
-# Directory Configuration
-# -----------------------------------------------------------------------------------
-PROJECT_DIR = os.path.join(os.path.abspath(os.path.dirname(__file__)))
-LOCALE_PATHS = (os.path.join(PROJECT_DIR, '../locale'),)
-RESOURCES_DIR = os.path.join(PROJECT_DIR, '../resources')
-FIXTURE_DIRS = (os.path.join(PROJECT_DIR, '../fixtures'),)
-TESTFILES_DIR = os.path.join(PROJECT_DIR, '../testfiles')
-TEMPLATE_DIRS = (os.path.join(PROJECT_DIR, '../templates'),)
-STATICFILES_DIRS = (os.path.join(PROJECT_DIR, '../static'), os.path.join(PROJECT_DIR, '../media'), )
-STATIC_ROOT = os.environ.get('STATIC_DIR', os.path.join(PROJECT_DIR, '../sitestatic'))
-COMPRESS_ROOT = os.environ.get('STATIC_DIR', os.path.join(PROJECT_DIR, '../sitestatic'))
-STATIC_URL = '/static/'
-MEDIA_ROOT = os.path.join(PROJECT_DIR, '../media')
-MEDIA_URL = "/media/"
 
 # -----------------------------------------------------------------------------------
 # Permission Management
@@ -343,7 +352,8 @@ PERMISSIONS = {
                          'omnibox',
                          'unblock',
                          'unstop',
-                         'update_fields'
+                         'update_fields',
+                         'update_fields_input'
                          ),
 
     'contacts.contactfield': ('api',
@@ -360,6 +370,7 @@ PERMISSIONS = {
                                 'geometry'),
 
     'orgs.org': ('accounts',
+                 'smtp_server',
                  'api',
                  'country',
                  'clear_cache',
@@ -397,48 +408,19 @@ PERMISSIONS = {
 
     'orgs.usersettings': ('phone',),
 
-
     'channels.channel': ('api',
                          'bulk_sender_options',
                          'claim',
-                         'claim_africas_talking',
-                         'claim_android',
-                         'claim_blackmyna',
-                         'claim_chikka',
-                         'claim_clickatell',
-                         'claim_external',
-                         'claim_facebook',
-                         'claim_globe',
-                         'claim_high_connection',
-                         'claim_hub9',
-                         'claim_infobip',
-                         'claim_jasmin',
-                         'claim_kannel',
-                         'claim_m3tech',
-                         'claim_mblox',
-                         'claim_nexmo',
-                         'claim_plivo',
-                         'claim_shaqodoon',
-                         'claim_smscentral',
-                         'claim_start',
-                         'claim_telegram',
-                         'claim_twilio',
-                         'claim_twilio_messaging_service',
-                         'claim_twitter',
-                         'claim_verboice',
-                         'claim_viber',
-                         'create_viber',
-                         'claim_vumi',
-                         'claim_vumi_ussd',
-                         'claim_yo',
-                         'claim_zenvia',
                          'configuration',
                          'create_bulk_sender',
                          'create_caller',
                          'errors',
+                         'facebook_whitelist',
                          'search_nexmo',
                          'search_numbers',
                          ),
+
+    'channels.channellog': ('session',),
 
     'channels.channelevent': ('api',
                               'calls'),
@@ -446,11 +428,13 @@ PERMISSIONS = {
     'flows.flowstart': ('api',),
 
     'flows.flow': ('activity',
+                   'activity_chart',
                    'activity_list',
                    'analytics',
                    'api',
                    'archived',
                    'broadcast',
+                   'campaign',
                    'completion',
                    'copy',
                    'editor',
@@ -462,8 +446,10 @@ PERMISSIONS = {
                    'recent_messages',
                    'results',
                    'revisions',
+                   'run_table',
                    'simulate',
                    'upload_action_recording',
+                   'upload_media_action',
                    ),
 
     'flows.ruleset': ('analytics',
@@ -506,8 +492,10 @@ PERMISSIONS = {
                          'keyword',
                          'missed_call',
                          'new_conversation',
+                         'referral',
                          'register',
                          'schedule',
+                         'ussd',
                          ),
 }
 
@@ -540,6 +528,7 @@ GROUP_PERMISSIONS = {
         'flows.flow_json',
         'flows.flow_read',
         'flows.flow_revisions',
+        'flows.flowrun_delete',
         'orgs.org_dashboard',
         'orgs.org_grant',
         'orgs.org_manage',
@@ -582,12 +571,14 @@ GROUP_PERMISSIONS = {
         'contacts.contact_unstop',
         'contacts.contact_update',
         'contacts.contact_update_fields',
+        'contacts.contact_update_fields_input',
         'contacts.contactfield.*',
         'contacts.contactgroup.*',
 
         'csv_imports.importtask.*',
 
         'ivr.ivrcall.*',
+        'ussd.ussdsession.*',
 
         'locations.adminboundary_alias',
         'locations.adminboundary_api',
@@ -595,6 +586,7 @@ GROUP_PERMISSIONS = {
         'locations.adminboundary_geometry',
 
         'orgs.org_accounts',
+        'orgs.org_smtp_server',
         'orgs.org_api',
         'orgs.org_country',
         'orgs.org_create_sub_org',
@@ -624,44 +616,14 @@ GROUP_PERMISSIONS = {
         'orgs.usersettings_phone',
         'orgs.usersettings_update',
 
-        'channels.channel_claim_nexmo',
         'channels.channel_api',
         'channels.channel_bulk_sender_options',
         'channels.channel_claim',
-        'channels.channel_claim_africas_talking',
-        'channels.channel_claim_android',
-        'channels.channel_claim_blackmyna',
-        'channels.channel_claim_chikka',
-        'channels.channel_claim_clickatell',
-        'channels.channel_claim_external',
-        'channels.channel_claim_facebook',
-        'channels.channel_claim_globe',
-        'channels.channel_claim_high_connection',
-        'channels.channel_claim_hub9',
-        'channels.channel_claim_infobip',
-        'channels.channel_claim_jasmin',
-        'channels.channel_claim_kannel',
-        'channels.channel_claim_mblox',
-        'channels.channel_claim_m3tech',
-        'channels.channel_claim_plivo',
-        'channels.channel_claim_shaqodoon',
-        'channels.channel_claim_smscentral',
-        'channels.channel_claim_start',
-        'channels.channel_claim_telegram',
-        'channels.channel_claim_twilio',
-        'channels.channel_claim_twilio_messaging_service',
-        'channels.channel_claim_twitter',
-        'channels.channel_claim_verboice',
-        'channels.channel_claim_viber',
-        'channels.channel_create_viber',
-        'channels.channel_claim_vumi',
-        'channels.channel_claim_vumi_ussd',
-        'channels.channel_claim_yo',
-        'channels.channel_claim_zenvia',
         'channels.channel_configuration',
         'channels.channel_create',
         'channels.channel_create_bulk_sender',
         'channels.channel_create_caller',
+        'channels.channel_facebook_whitelist',
         'channels.channel_delete',
         'channels.channel_list',
         'channels.channel_read',
@@ -671,6 +633,7 @@ GROUP_PERMISSIONS = {
         'channels.channelevent.*',
         'channels.channellog_list',
         'channels.channellog_read',
+        'channels.channellog_session',
 
         'reports.report.*',
 
@@ -678,6 +641,7 @@ GROUP_PERMISSIONS = {
         'flows.flowstart_api',
         'flows.flowlabel.*',
         'flows.ruleset.*',
+        'flows.flowrun_delete',
 
         'schedules.schedule.*',
 
@@ -734,12 +698,14 @@ GROUP_PERMISSIONS = {
         'contacts.contact_unstop',
         'contacts.contact_update',
         'contacts.contact_update_fields',
+        'contacts.contact_update_fields_input',
         'contacts.contactfield.*',
         'contacts.contactgroup.*',
 
         'csv_imports.importtask.*',
 
         'ivr.ivrcall.*',
+        'ussd.ussdsession.*',
 
         'locations.adminboundary_alias',
         'locations.adminboundary_api',
@@ -762,36 +728,6 @@ GROUP_PERMISSIONS = {
         'channels.channel_api',
         'channels.channel_bulk_sender_options',
         'channels.channel_claim',
-        'channels.channel_claim_africas_talking',
-        'channels.channel_claim_android',
-        'channels.channel_claim_blackmyna',
-        'channels.channel_claim_chikka',
-        'channels.channel_claim_clickatell',
-        'channels.channel_claim_external',
-        'channels.channel_claim_facebook',
-        'channels.channel_claim_globe',
-        'channels.channel_claim_high_connection',
-        'channels.channel_claim_hub9',
-        'channels.channel_claim_infobip',
-        'channels.channel_claim_jasmin',
-        'channels.channel_claim_kannel',
-        'channels.channel_claim_mblox',
-        'channels.channel_claim_m3tech',
-        'channels.channel_claim_plivo',
-        'channels.channel_claim_shaqodoon',
-        'channels.channel_claim_smscentral',
-        'channels.channel_claim_start',
-        'channels.channel_claim_telegram',
-        'channels.channel_claim_twilio',
-        'channels.channel_claim_twilio_messaging_service',
-        'channels.channel_claim_twitter',
-        'channels.channel_claim_verboice',
-        'channels.channel_claim_viber',
-        'channels.channel_create_viber',
-        'channels.channel_claim_vumi',
-        'channels.channel_claim_vumi_ussd',
-        'channels.channel_claim_yo',
-        'channels.channel_claim_zenvia',
         'channels.channel_configuration',
         'channels.channel_create',
         'channels.channel_create_bulk_sender',
@@ -864,7 +800,9 @@ GROUP_PERMISSIONS = {
         'channels.channelevent_calls',
 
         'flows.flow_activity',
+        'flows.flow_activity_chart',
         'flows.flow_archived',
+        'flows.flow_campaign',
         'flows.flow_completion',
         'flows.flow_export',
         'flows.flow_export_results',
@@ -875,10 +813,10 @@ GROUP_PERMISSIONS = {
         'flows.flow_json',
         'flows.flow_recent_messages',
         'flows.flow_results',
+        'flows.flow_run_table',
         'flows.flow_simulate',
         'flows.ruleset_analytics',
         'flows.ruleset_results',
-        'flows.ruleset_map',
         'flows.ruleset_choropleth',
 
         'msgs.broadcast_schedule_list',
@@ -905,12 +843,8 @@ LOGOUT_URL = "/users/logout/"
 LOGIN_REDIRECT_URL = "/org/choose/"
 LOGOUT_REDIRECT_URL = "/"
 
-# -----------------------------------------------------------------------------------
-# Guardian Configuration
-# -----------------------------------------------------------------------------------
 AUTHENTICATION_BACKENDS = (
     'smartmin.backends.CaseInsensitiveBackend',
-    'guardian.backends.ObjectPermissionBackend',
 )
 
 ANONYMOUS_USER_NAME = 'AnonymousUser'
@@ -975,8 +909,20 @@ CELERYBEAT_SCHEDULE = {
         'task': 'fail_old_messages',
         'schedule': crontab(hour=0, minute=0),
     },
+    "purge-broadcasts": {
+        'task': 'purge_broadcasts_task',
+        'schedule': crontab(hour=1, minute=0),
+    },
+    "clear-old-msg-external-ids": {
+        'task': 'clear_old_msg_external_ids',
+        'schedule': crontab(hour=2, minute=0),
+    },
     "trim-channel-log": {
         'task': 'trim_channel_log_task',
+        'schedule': crontab(hour=3, minute=0),
+    },
+    "trim-webhook-event": {
+        'task': 'trim_webhook_event_task',
         'schedule': crontab(hour=3, minute=0),
     },
     "calculate-credit-caches": {
@@ -985,6 +931,14 @@ CELERYBEAT_SCHEDULE = {
     },
     "squash-flowruncounts": {
         'task': 'squash_flowruncounts',
+        'schedule': timedelta(seconds=300),
+    },
+    "squash-flowpathcounts": {
+        'task': 'squash_flowpathcounts',
+        'schedule': timedelta(seconds=300),
+    },
+    "prune-recentmessages": {
+        'task': 'prune_recentmessages',
         'schedule': timedelta(seconds=300),
     },
     "squash-channelcounts": {
@@ -1003,6 +957,11 @@ CELERYBEAT_SCHEDULE = {
         'task': 'squash_contactgroupcounts',
         'schedule': timedelta(seconds=300),
     },
+    "refresh-jiochat-access-tokens": {
+        'task': 'refresh_jiochat_access_tokens',
+        'schedule': timedelta(seconds=3600),
+    },
+
 }
 
 # Mapping of task name to task function path, used when CELERY_ALWAYS_EAGER is set to True
@@ -1013,12 +972,10 @@ CELERY_TASK_MAP = {
 }
 
 # -----------------------------------------------------------------------------------
-# Async tasks with django-celery
+# Async tasks with celery
 # -----------------------------------------------------------------------------------
-djcelery.setup_loader()
-
-REDIS_HOST = os.environ.get('REDISHOST', 'localhost')
-REDIS_PORT = os.environ.get('REDISPORT', 6379)
+REDIS_HOST = 'localhost'
+REDIS_PORT = 6379
 
 # we use a redis db of 10 for testing so that we maintain caches for dev
 REDIS_DB = 10 if TESTING else 15
@@ -1028,7 +985,9 @@ BROKER_URL = 'redis://%s:%d/%d' % (REDIS_HOST, REDIS_PORT, REDIS_DB)
 # by default, celery doesn't have any timeout on our redis connections, this fixes that
 BROKER_TRANSPORT_OPTIONS = {'socket_timeout': 5}
 
-CELERY_RESULT_BACKEND = BROKER_URL
+CELERY_RESULT_BACKEND = None
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
 
 IS_PROD = False
 HOSTNAME = "localhost"
@@ -1041,10 +1000,10 @@ OUTGOING_PROXIES = {}
 # -----------------------------------------------------------------------------------
 CACHES = {
     "default": {
-        "BACKEND": "redis_cache.cache.RedisCache",
-        "LOCATION": "%s:%s:%s" % (REDIS_HOST, REDIS_PORT, REDIS_DB),
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": "redis://%s:%s/%s" % (REDIS_HOST, REDIS_PORT, REDIS_DB),
         "OPTIONS": {
-            "CLIENT_CLASS": "redis_cache.client.DefaultClient",
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
         }
     }
 }
@@ -1073,35 +1032,35 @@ REST_FRAMEWORK = {
     'PAGE_SIZE': 250,
     'DEFAULT_RENDERER_CLASSES': (
         'temba.api.support.DocumentationRenderer',
-        'rest_framework.renderers.JSONRenderer',
-        'rest_framework_xml.renderers.XMLRenderer',
+        'rest_framework.renderers.JSONRenderer'
     ),
     'EXCEPTION_HANDLER': 'temba.api.support.temba_exception_handler',
     'UNICODE_JSON': False
 }
 REST_HANDLE_EXCEPTIONS = not TESTING
 
-
-# -----------------------------------------------------------------------------------
-# Aggregator settings
-# -----------------------------------------------------------------------------------
-
-# Hub9 is an aggregator in Indonesia, set this to the endpoint for your service
-# and make sure you send from a whitelisted IP Address
-HUB9_ENDPOINT = 'http://175.103.48.29:28078/testing/smsmt.php'
-
 # -----------------------------------------------------------------------------------
 # Django Compressor configuration
 # -----------------------------------------------------------------------------------
 
-COMPRESS_PRECOMPILERS = (
-    ('text/less', 'lessc --include-path="%s" {infile} {outfile}' % os.path.join(PROJECT_DIR, '../static', 'less')),
-    ('text/coffeescript', 'coffee --compile --stdio'))
-COMPRESS_OFFLINE_CONTEXT = dict(STATIC_URL=STATIC_URL, base_template='frame.html')
+if TESTING:
+    # if only testing, disable coffeescript and less compilation
+    COMPRESS_PRECOMPILERS = ()
+else:
+    COMPRESS_PRECOMPILERS = (
+        ('text/less', 'lessc --include-path="%s" {infile} {outfile}' % os.path.join(PROJECT_DIR, '../static', 'less')),
+        ('text/coffeescript', 'coffee --compile --stdio')
+    )
 
 COMPRESS_ENABLED = False
 COMPRESS_OFFLINE = False
-COMPRESS_URL = '/sitestatic/'
+
+# build up our offline compression context based on available brands
+COMPRESS_OFFLINE_CONTEXT = []
+for brand in BRANDING.values():
+    context = dict(STATIC_URL=STATIC_URL, base_template='frame.html', debug=False, testing=False)
+    context['brand'] = dict(slug=brand['slug'], styles=brand['styles'])
+    COMPRESS_OFFLINE_CONTEXT.append(context)
 
 MAGE_API_URL = 'http://localhost:8026/api/v1'
 MAGE_AUTH_TOKEN = '___MAGE_TOKEN_YOU_PICK__'
@@ -1130,10 +1089,23 @@ SEND_EMAILS = False
 #         could cause airtime transfers in test environment
 SEND_AIRTIME = False
 
+######
+# DANGER: only turn this on if you know what you are doing!
+#         could cause calls in test environments
+SEND_CALLS = False
 
-MESSAGE_HANDLERS = ['temba.triggers.handlers.TriggerHandler',
-                    'temba.flows.handlers.FlowHandler',
-                    'temba.triggers.handlers.CatchAllHandler']
+MESSAGE_HANDLERS = [
+    'temba.triggers.handlers.TriggerHandler',
+    'temba.flows.handlers.FlowHandler',
+    'temba.triggers.handlers.CatchAllHandler'
+]
+
+CHANNEL_TYPES = [
+    'temba.channels.types.facebook.FacebookType',
+    'temba.channels.types.telegram.TelegramType',
+    'temba.channels.types.twitter.TwitterType',
+    'temba.channels.types.twitter_activity.TwitterActivityType'
+]
 
 # -----------------------------------------------------------------------------------
 # Store sessions in our cache
@@ -1160,3 +1132,17 @@ LIBRATO_TOKEN = os.environ.get('LIBRATO_TOKEN', '')
 # You need to change these to real addresses to work with these.
 # -----------------------------------------------------------------------------------
 IP_ADDRESSES = ('172.16.10.10', '162.16.10.20')
+
+# -----------------------------------------------------------------------------------
+# Installs may choose how big they want their text messages and contact fields to be.
+# -----------------------------------------------------------------------------------
+MSG_FIELD_SIZE = 640
+VALUE_FIELD_SIZE = 640
+
+# -----------------------------------------------------------------------------------
+# Installs may choose how long to keep the channel logs in hours
+# by default we keep success logs for 48 hours and error_logs for 30 days(30 * 24 hours)
+# Falsy values to keep the logs forever
+# -----------------------------------------------------------------------------------
+SUCCESS_LOGS_TRIM_TIME = 48
+ALL_LOGS_TRIM_TIME = 24 * 30

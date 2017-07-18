@@ -67,7 +67,7 @@
     .random{ng-if:'formData.rulesetConfig.type == "random"'}><
       #split-on
         -trans "Split them randomly into"
-        %input.split-buckets{type:"text", min:"2", max:"20", ng-change:'updateRandomBuckets()', ng-model:"formData.buckets", ng-required:"true", type:"number"}
+        %input.split-buckets{min:"2", max:"20", ng-change:'updateRandomBuckets()', ng-model:"formData.buckets", ng-required:"true", type:"number"}
         -trans "even buckets"
 
         .buckets
@@ -90,7 +90,7 @@
         .country-config{ng-repeat:"option in formData.airtimeAmountConfig"}
           .country
             [[option.name]] ([[option.currency_code]])
-          %input.airtime-amount{type:"text", ng-model:"option.amount", ng-required:"true", type:"number"}
+          %input.airtime-amount{ng-model:"option.amount", ng-required:"true", type:"number"}
 
     .resthook{ng-if:'formData.rulesetConfig.type == "resthook"'}><
       .split-margin
@@ -112,7 +112,30 @@
             Enter the URL to call out to at this point in the flow.
 
         %select{ng-model:"formData.webhook_action",ng-options:"method for method in methods",style:"height:34px;width:95px",class:"method",select2:""}
-        %input{ng-model:"formData.webhook",placeholder:"http://yourwebsite.com/endpoint",auto-complete:"",ng-required:"true",type:"url",class:"url", maxlength:"255"}
+        %input{ng-model:"formData.webhook",placeholder:"http://yourwebsite.com/endpoint",auto-complete:"",ng-required:"true",type:"url",class:"url"}
+
+        %a.additional-options{href:"javascript:;",ng-click:"webhookAdditionalOptions()",ng-show:"!formData.isWebhookAdditionalOptionsVisible"}
+          -trans "Additional options"
+
+        .webhook-headers{ng-show:"formData.isWebhookAdditionalOptionsVisible"}
+          .modal-webhook-header-pair
+            .modal-webhook-header.modal-webhook-header-name
+              .message
+                -trans "Header Name"
+            .modal-webhook-header.modal-webhook-header-value
+              .message
+                -trans "Header Value"
+          .modal-webhook-header-pair{ng-repeat:"header in formData.webhook_headers"}
+            .modal-webhook-header.modal-webhook-header-name
+              %input{type:"text",name:"webhook-name",ng-model:"webhook_headers_name[$index]"}
+            .modal-webhook-header.modal-webhook-header-value
+              %input{type:"text",name:"webhook-value",ng-model:"webhook_headers_value[$index]"}
+            .modal-webhook-header.modal-webhook-header-remove
+              .icon.icon-close{ng-click:"removeWebhookHeader($index)"}
+
+          %a.add-header{href:"javascript:;",ng-click:"addNewWebhookHeader()"}
+            -trans "Add header"
+
         .help-text
           -blocktrans
             We'll include the message text along with data specified in
@@ -156,7 +179,8 @@
     %form{name:'ruleForm'}
       %span{ng-if:'hasRules() && formData.rulesetConfig.type != "wait_menu"'}
         %div{ui-sortable:"sortableOptions",ng-model:"ruleset.rules"}
-          .rule{ng-repeat:"rule in ruleset.rules track by rule.uuid",ng-show:'rule._config.show'}
+          .rule{ng-repeat:"rule in ruleset.rules track by rule.uuid", ng-show:"isRuleVisible(rule)"}
+
             <ng-form name="inner">
               .icon.icon-menu
               %select{ng-model:"rule._config",ng-options:'operator as operator.verbose_name for operator in operatorConfigs|filter:isVisibleOperator', class:"operator-select",ng-change:"updateCategory(rule)"}
@@ -186,7 +210,7 @@
               .operation{ng-if:"rule._config.operands == 0"}
               .categorize
                 -trans "categorize as"
-                %input{ng-model:"rule.category._base",name:"category",ng-required:"rule._config.operands==0 || (rule._config.operands==1 && rule.test._base) || (rule._config.operands==2 && (rule.test.test.min || rule.test.test.max))",ng-change:"rule.category._autoName = false",type:"text",class:"category"}
+                %input{ng-model:"rule.category._base",name:"category",ng-required:"rule._config.operands==0 || (rule._config.operands==1 && rule.test._base) || (rule._config.operands==2 && (rule.test.test.min || rule.test.test.max))",ng-change:"rule.category._autoName = false",type:"text",class:"category",maxlength:"36"}
               .icon.icon-close{ng-click:"remove(rule)"}
               .error{ng-show:"inner.min.$error.lowerThan"}
                 -blocktrans

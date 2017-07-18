@@ -307,10 +307,6 @@ describe 'Services:', ->
         ruleActionLoop = flowService.isConnectionAllowed(groupSplit, messageOne, groupA)
         expect(ruleActionLoop).toBe(false, "Rule to action loop without blocking ruleset")
 
-      it 'should detect back to back pause rules', ->
-        rulePauseLoop = flowService.isConnectionAllowed(messageSplitB, messageSplitA, messageSplitRule)
-        expect(rulePauseLoop).toBe(false, "Two pausing rulesets in a row")
-
       it 'should allow top level connection with downstream splits to same node', ->
         flowService.updateDestination(messageOne, null)
 
@@ -478,13 +474,13 @@ describe 'Services:', ->
 
         # check we have the right number of categories to start
         colors = getNode(flow, colorRulesId)
-        expect(colors._categories.length).toBe(4, 'categories were not derived properly')
+        expect(colors._categories.length).toBe(5, 'categories were not derived properly')
 
         # now set the green category name to the same as red
         green = getRule(flow, colorRulesId, greenRuleId)
         green.category = {base: 'red'}
         flowService.deriveCategories(colors, 'base')
-        expect(colors._categories.length).toBe(3, 'like named category did not get merged')
+        expect(colors._categories.length).toBe(4, 'like named category did not get merged')
 
         # change red to skip a question
         flowService.updateDestination(colorRulesId + '_' + redRuleId, nameActionsId)

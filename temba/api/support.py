@@ -1,6 +1,7 @@
 from __future__ import absolute_import, unicode_literals
 
 import logging
+import six
 
 from django.conf import settings
 from django.http import HttpResponseServerError
@@ -81,7 +82,7 @@ class DocumentationRenderer(BrowsableAPIRenderer):
         Usually one customizes the browsable view by overriding the rest_framework/api.html template but we have two
         versions of the API to support with two different templates.
         """
-        if not renderer_context:
+        if not renderer_context:  # pragma: needs cover
             raise ValueError("Can't render without context")
 
         request_path = renderer_context['request'].path
@@ -109,7 +110,7 @@ def temba_exception_handler(exc, context):
         return response
     else:
         # ensure exception still goes to Sentry
-        logger.error('Exception in API request: %s' % unicode(exc), exc_info=True)
+        logger.error('Exception in API request: %s' % six.text_type(exc), exc_info=True)
 
         # respond with simple message
         return HttpResponseServerError("Server Error. Site administrators have been notified.")

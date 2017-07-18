@@ -3,8 +3,10 @@ from __future__ import unicode_literals
 from django import template
 from django.utils.safestring import mark_safe
 from django.utils.translation import ugettext_lazy as _
-from temba.contacts.models import Contact, ContactURN, EMAIL_SCHEME, EXTERNAL_SCHEME, FACEBOOK_SCHEME
-from temba.contacts.models import TELEGRAM_SCHEME, TEL_SCHEME, TWITTER_SCHEME, TWILIO_SCHEME
+from temba.contacts.models import ContactURN, EMAIL_SCHEME, EXTERNAL_SCHEME, FACEBOOK_SCHEME, FCM_SCHEME
+from temba.contacts.models import TELEGRAM_SCHEME, TEL_SCHEME, TWITTER_SCHEME, TWILIO_SCHEME, LINE_SCHEME
+from temba.ivr.models import IVRCall
+from temba.msgs.models import ERRORED, FAILED
 
 register = template.Library()
 
@@ -15,7 +17,9 @@ URN_SCHEME_ICONS = {
     EMAIL_SCHEME: 'icon-envelop',
     FACEBOOK_SCHEME: 'icon-facebook',
     TELEGRAM_SCHEME: 'icon-telegram',
-    EXTERNAL_SCHEME: 'icon-channel-external'
+    LINE_SCHEME: 'icon-line',
+    EXTERNAL_SCHEME: 'icon-channel-external',
+    FCM_SCHEME: 'icon-fcm'
 }
 
 ACTIVITY_ICONS = {
@@ -27,23 +31,21 @@ ACTIVITY_ICONS = {
     'Failed': 'icon-bubble-notification',
     'Delivered': 'icon-bubble-check',
     'Call': 'icon-phone',
-    'IVRCall': 'icon-phone',
-    'DTMF': 'icon-phone'
+    'IVRCall': 'icon-call-outgoing',
+    'DTMF': 'icon-call-incoming',
+    'Expired': 'icon-clock',
+    'Interrupted': 'icon-warning',
+    'Completed': 'icon-checkmark',
+    'WebHookResult': 'icon-cloud-upload',
 }
+
+MISSING_VALUE = '--'
 
 
 @register.filter
 def contact_field(contact, arg):
     value = contact.get_field_display(arg)
-    if value:
-        return value
-    else:  # pragma: no cover
-        return None
-
-
-@register.filter
-def tel(contact, org):
-    return contact.get_urn_display(org=org, scheme=TEL_SCHEME)
+    return value or MISSING_VALUE
 
 
 @register.filter
@@ -57,15 +59,35 @@ def name_or_urn(contact, org):
 
 
 @register.filter
-def format_urn(urn_or_contact, org):
-    if isinstance(urn_or_contact, ContactURN):
-        urn_val = urn_or_contact.get_display(org=org, international=True)
-        return urn_val if urn_val != ContactURN.ANON_MASK else '\u2022' * 8  # replace *'s with prettier HTML entity
-    elif isinstance(urn_or_contact, Contact):
-        # will render contact's highest priority URN
-        return urn_or_contact.get_urn_display(org=org, international=True)
-    else:  # pragma: no cover
-        raise ValueError('Must be a URN or contact')
+def name(contact, org):
+    if contact.name:
+        return contact.name
+    elif org.is_anon:
+        return contact.anon_identifier
+    else:
+        return MISSING_VALUE
+
+
+@register.filter
+def format_urn(urn, org):
+    urn_val = urn.get_display(org=org, international=True)
+    if urn_val == ContactURN.ANON_MASK:
+        return ContactURN.ANON_MASK_HTML
+    return urn_val
+
+
+@register.filter
+def urn(contact, org):
+    contact_urn = contact.get_urn()
+    if contact_urn:
+        return format_urn(contact_urn, org)
+    else:
+        return MISSING_VALUE
+
+
+@register.filter
+def format_contact(contact, org):
+    return contact.get_display(org=org)
 
 
 @register.filter
@@ -74,87 +96,58 @@ def urn_icon(urn):
 
 
 @register.filter
-def osm_link(geo_url):
-    (media_type, delim, location) = geo_url.partition(':')
-    coords = location.split(',')
-    if len(coords) == 2:
-        (lat, lng) = coords
-        return 'http://www.openstreetmap.org/?mlat=%(lat)s&mlon=%(lng)s#map=18/%(lat)s/%(lng)s' % {"lat": lat, "lng": lng}
-
-
-@register.filter
-def location(geo_url):
-    (media_type, delim, location) = geo_url.partition(':')
-    if len(location.split(',')) == 2:
-        return location
-
-
-@register.filter
-def media_url(media):
-    if media:
-        # TODO: remove after migration msgs.0053
-        if media.startswith('http'):
-            return media
-        return media.partition(':')[2]
-
-
-@register.filter
-def media_content_type(media):
-    if media:
-        # TODO: remove after migration msgs.0053
-        if media.startswith('http'):
-            return 'audio/x-wav'
-        return media.partition(':')[0]
-
-
-@register.filter
-def media_type(media):
-    type = media_content_type(media)
-    if type == 'application/octet-stream' and media.endswith('.oga'):
-        return 'audio'
-    if type and '/' in type:
-        type = type.split('/')[0]
-    return type
-
-
-@register.filter
-def is_supported_audio(content_type):
-    return content_type in ['audio/wav', 'audio/x-wav', 'audio/vnd.wav', 'application/octet-stream']
-
-
-@register.filter
-def is_document(media_url):
-    type = media_type(media_url)
-    return type in ['application', 'text']
-
-
-@register.filter
-def extension(url):
-    return url.rpartition('.')[2]
-
-
-@register.filter
 def activity_icon(item):
-    name = type(item).__name__
-    if name == 'Msg':
-        if item.broadcast and item.broadcast.recipient_count > 1:
-            name = 'Broadcast'
-        elif item.msg_type == 'V':
-            if item.direction == 'I':
-                name = 'DTMF'
-            else:
-                name = 'IVRCall'
-        elif item.direction == 'I':
-            name = 'Incoming'
-        else:
-            name = 'Outgoing'
-            if hasattr(item, 'status'):
-                if item.status in ('F', 'E'):
-                    name = 'Failed'
-                elif item.status == 'D':
-                    name = 'Delivered'
+    obj = item['obj']
 
-    return mark_safe('<span class="glyph %s"></span>' % (ACTIVITY_ICONS.get(name, '')))
+    if item['type'] == 'broadcast':
+        icon = 'Failed' if obj.purged_status in ('E', 'F') else 'Broadcast'
+    elif item['type'] == 'msg':
+        if obj.broadcast and obj.broadcast.recipient_count > 1:
+            icon = 'Failed' if obj.status in ('E', 'F') else 'Broadcast'
+        elif obj.msg_type == 'V':
+            icon = 'DTMF' if obj.direction == 'I' else 'IVRCall'
+        elif obj.direction == 'I':
+            icon = 'Incoming'
+        else:
+            if obj.status in ('F', 'E'):
+                icon = 'Failed'
+            elif obj.status == 'D':
+                icon = 'Delivered'
+            else:
+                icon = 'Outgoing'
+    elif item['type'] == 'run-start':
+        icon = 'FlowRun'
+    elif item['type'] == 'run-exit':
+        if obj.exit_type == 'C':
+            icon = 'Completed'
+        elif obj.exit_type == 'I':
+            icon = 'Interrupted'
+        else:
+            icon = 'Expired'
+    else:
+        icon = type(obj).__name__
+
+    return mark_safe('<span class="glyph %s"></span>' % (ACTIVITY_ICONS.get(icon, '')))
+
+
+@register.filter
+def history_class(item):
+    obj = item['obj']
+    classes = []
+
+    if item['type'] in ('msg', 'broadcast'):
+        classes.append('msg')
+        if obj.status in (ERRORED, FAILED):
+            classes.append('warning')
+    else:
+        classes.append('non-msg')
+
+        if item['type'] == 'webhook-result' and not obj.is_success:
+            classes.append('warning')
+
+        if item['type'] == 'call' and obj.status == IVRCall.FAILED:
+            classes.append('warning')
+    return ' '.join(classes)
 
 
 @register.filter

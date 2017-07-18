@@ -218,9 +218,7 @@ function initMessageLengthCounter(textarea, counter){
         }
     }
 
-
-
-    $(textarea).keyup(onKeyUp);
+    $(textarea).live('keyup', onKeyUp);
 
     // set our initial length
     onKeyUp();
@@ -284,3 +282,26 @@ function resetStartDatetime(){var datetime=$("#start-datetime");if(datetime.val(
 
 function startDatetimeClick(){$("#later-option").click();}
 
+
+/**
+ * We use video.js to provide a more consistent experience across different browsers
+ * @param element the <video> element
+ */
+function initializeVideoPlayer(element) {
+    videojs(element, {
+        plugins: {
+            vjsdownload: {
+                beforeElement: 'playbackRateMenuButton',
+                textControl: 'Download',
+                name: 'downloadButton'
+            }
+        }
+    });
+}
+
+function disposeVideoPlayer(element) {
+    var player = videojs.getPlayers()[element.playerId];
+    if (player) {
+        player.dispose();
+    }
+}

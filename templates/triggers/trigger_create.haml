@@ -3,12 +3,6 @@
 
 -block extra-style
   :css
-    .form-horizontal .control-label {
-      display:block;
-      float:none;
-      font-weight:500;
-    }
-
     .help-block {
       font-size: 85%;
       color: #ccc;
@@ -28,5 +22,3 @@
 -block extra-script
   {{ block.super }}
   <script src="{% url 'django.views.i18n.javascript_catalog' %}"></script>
-  <script type="text/javascript" src="{{ STATIC_URL }}js/jquery.jsPlumb-1.4.1-all-min.js "></script>
-

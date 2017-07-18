@@ -95,30 +95,35 @@ findMatches = (query, data, start, lastIdx, prependChar = undefined) ->
         html += "<p class='help-block'>" + help.text() + "</p>"
     html += "</div></div>"
 
-    controlGroup.replaceWith(html)
+    ele = $(html)
+    controlGroup.replaceWith(ele)
 
-  ele = $(".font-checkbox")
+    helpText = ele.children('.controls').children('.help-block').children('label')
+    helpText.on 'click', (event) ->
+      $(this).parent().parent('.field-input').children('.glyph.notif-checkbox').click()
+      event.preventDefault();
 
-  glyphCheck = ele.children('.controls').children('.glyph.notif-checkbox')
-  glyphCheck.on 'click', ->
-    cell = $(this).parent('.field-input')
-    ipt = cell.children().children("input[type='checkbox']")
+    glyphCheck = ele.children('.controls').children('.glyph.notif-checkbox')
 
-    if ipt.prop('checked')
-      cell.removeClass 'checked'
-      ipt.prop('checked', false)
-    else
-      cell.addClass 'checked'
-      ipt.prop('checked', true)
+    glyphCheck.on 'click', ->
+      cell = $(this).parent('.field-input')
+      ipt = cell.children().children("input[type='checkbox']")
 
-  chkBox = ele.find("input[type=checkbox]")
-  chkBox.on 'change', ->
-    cell = ele.find('.field-input')
+      if ipt.prop('checked')
+        cell.removeClass 'checked'
+        ipt.prop('checked', false)
+      else
+        cell.addClass 'checked'
+        ipt.prop('checked', true)
 
-    if $(this).prop('checked')
-      cell.addClass 'checked'
-    else
-      cell.removeClass 'checked'
+    chkBox = ele.find("input[type=checkbox]")
+    chkBox.on 'change', ->
+      cell = ele.find('.field-input')
+
+      if $(this).prop('checked')
+        cell.addClass 'checked'
+      else
+        cell.removeClass 'checked'
 
 
 @select2div = (selector, width="350px", placeholder=null, add_prefix=null) ->
@@ -142,11 +147,20 @@ findMatches = (query, data, start, lastIdx, prependChar = undefined) ->
       placeholder: placeholder
       query: (query) ->
         data = { results: [] }
+        cleaned_query = query.term.toLowerCase().strip()
+        exact_match = false
+
         for d in this['data']
-          if d.text.toLowerCase().indexOf(query.term.toLowerCase().strip()) != -1
+          if d.text.toLowerCase().indexOf(cleaned_query) != -1
             data.results.push({ id:d.id, text: d.text });
-        if data.results.length == 0 and query.term.strip().length > 0
+
+            if d.text.toLowerCase() == cleaned_query
+              exact_match = true
+
+        # if term is non-empty and hasn't matched an returned item exactly, show option for creating a new item
+        if not exact_match and cleaned_query.length > 0
           data.results.push({id:'[_NEW_]' + query.term, text: add_prefix + query.term});
+
         query.callback(data)
       createSearchChoice: (term, data) -> return data
   else
@@ -158,9 +172,34 @@ findMatches = (query, data, start, lastIdx, prependChar = undefined) ->
   if selected
     ele.data('select2').data(selected)
 
+@select2field = (ele) ->
+
+  url = ele.attr('url')
+  placeholder = ele.attr('placeholder')
+
+  select2 = ele.removeClass("loading").select2
+    placeholder: placeholder
+    allowClear: false
+    selectOnBlur: false
+    minimumInputLength: 0
+    multiple: false
+    initSelection: (ele, callback) ->
+      id = ele.val()
+      text = ele.attr('text')
+      callback({id:id, text:text})
+    ajax:
+      url: url
+      dataType: "json"
+      data: (term, page, context) ->
+        q = term
+        search: term
+        page: page
+      results: (response, page, context) ->
+        return response
+  id = ele.val()
+  $(ele).select2('val', id, true)
+
 ###
-
-
 @initAtMessageText = (selector, completions=null) ->
   completions = window.message_completions unless completions
 
@@ -399,19 +438,10 @@ class @Modax extends @ConfirmationModal
           if modal.listeners and modal.listeners.onFormLoaded
             modal.listeners.onFormLoaded()
 
-          modal.wireEnter()
           prepareOmnibox()
+          select2field($('.select2_field'))
       )
 
-    # trap ENTER on the form, use our modal submit
-    wireEnter: ->
-      modal = @
-      modal.ele.find("form").on('keydown', (e) ->
-        if e.keyCode == ENTER
-          modal.submit()
-          return false
-        )
- 
     submit: ->
       modal = @
       modal.ele.find('.primary').text(gettext("Processing..")).addClass("disabled")
@@ -451,7 +481,6 @@ class @Modax extends @ConfirmationModal
           if modal.listeners and modal.listeners.onCompleted
               modal.listeners.onCompleted()
           else
-            modal.wireEnter()
             modal.focusFirstInput()
       )
 

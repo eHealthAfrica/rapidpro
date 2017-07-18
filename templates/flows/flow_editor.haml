@@ -30,24 +30,26 @@
 
 -block extra-script
   {{ block.super }}
-  %script{type:'text/javascript', src:'{{ STATIC_URL }}js/dom.jsPlumb-1.7.5.js'}
-  %script{type:'text/javascript', src:'{{ STATIC_URL }}angular/sortable.js'}
-  %script{type:'text/javascript', src:'{{ STATIC_URL }}angular/ui-bootstrap-tpls-0.11.0.js'}
-  %script{src:"{{ STATIC_URL }}scripts/At.js/bower_components/Caret.js/dist/jquery.caret.js"}
-  %script{src:"{{ STATIC_URL }}scripts/At.js/dist/js/jquery.atwho.js"}
-  %script{src:"{{ STATIC_URL }}js/excellent.js"}
-  %script{type:'text/javascript', src:'{{ STATIC_URL }}scripts/autosize/jquery.autosize-min.js'}
-  %script{type:'text/javascript', src:'{{ STATIC_URL }}scripts/angular-elastic-2.4.0/angular-elastic.js'}
 
+  -compress js
+    %script{type:'text/javascript', src:'{{ STATIC_URL }}bower/jsPlumb/dist/js/dom.jsPlumb-1.7.5.js'}
+    %script{type:'text/javascript', src:"{{ STATIC_URL }}bower/jquery-autosize/jquery.autosize.js"}
+    %script{type:'text/javascript', src:"{{ STATIC_URL }}bower/angular-elastic/elastic.js"}
+    %script{type:'text/javascript', src:"{{ STATIC_URL }}bower/angular-ui-sortable/sortable.js"}
+    %script{type:'text/javascript', src:"{{ STATIC_URL }}js/temba-ui-bootstrap-tpls.js"}
+
+  %script{src:"{{ STATIC_URL }}js/excellent.js"}
 
   :javascript
     window.flowId = {{ object.pk }};
     window.simulateURL = '{% url "flows.flow_simulate" object.pk %}';
     window.activityURL = '{% url "flows.flow_activity" object.pk %}';
     window.uploadURL = '{% url "flows.flow_upload_action_recording" object.pk %}';
+    window.uploadMediaURL = '{% url "flows.flow_upload_media_action" object.pk %}';
     window.mutable = {{mutable|lower}};
     window.ivr = '{{object.flow_type}}' == 'V';
     window.ussd = '{{object.flow_type}}' == 'U';
+    window.has_ussd_channel = {{has_ussd_channel|lower}};
     window.flow_type = '{{object.flow_type}}';
     window.mediaURL = '{{media_url}}';
     window.hasAirtimeService = {{has_airtime_service|lower}};
@@ -82,14 +84,11 @@
           onFormLoaded: function() { }
         }
         // check if there is no channel, change the primary button behavior to redirect to channel creation
-        if('{{has_outgoing_channel}}' == 'None') {
+        {% if not can_start or not has_outgoing_channel %}
           modal.setPrimaryButton(gettext("Add Channel"));
           onActions['onPrimary'] = function() { document.location.href = '{% url "channels.channel_list" %}' };
-        }
-        if (window.ussd && !{{is_ussd_channel|yesno:"true,false"}}) {
-          modal.setPrimaryButton(gettext("Add USSD Channel"));
-          onActions['onPrimary'] = function() { document.location.href = '{% url "channels.channel_list" %}' };
-        }
+        {% endif %}
+
         modal.setListeners(onActions);
         modal.show();
       });
@@ -332,7 +331,7 @@
                     class:'[[action.type]]', ng-class:'{ disabled:!action._translation, missing: action._missingTranslation }'}
               .drop-overlay.hide
                 %p
-                  Drop to upload new sound file
+                  Drop to upload new file
 
               .title.action-name{ ng-model: 'action' }
 
@@ -371,12 +370,22 @@
 
 
                 // messages with translations
-                %span.translation{ng-show:'action.type == "send" || action.type == "reply" || action.type == "say"'}
+                %span.translation{ng-show:'action.type == "send" || action.type == "reply" || action.type == "say" || action.type == "end_ussd"'}
 
-                  [[action._translation]]
+                  .text{ng-class:'{}'}
+
+                    [[action._translation]]
 
                   .missing{ng-hide:'action._translation'}
                     -trans "Click here to add a message"
+
+                  %span.reply{ng-show:'action.type == "reply" || action.type == "send"'}
+
+                    .node-attachment.viewer-button{ng-class:'{"icon-videocam": action._media.type == "video", "icon-photo": action._media.type=="image", "icon-arrow-right-8": action._media.type=="audio"}', ng-show:'action._media', ng-click:'clickShowActionMedia(action); $event.stopPropagation();'}
+
+                    .uploading{ng-show:'action.uploading'}
+                      %img.throbber{ src: "{{ STATIC_URL }}images/loader-bars.gif" }
+                      .cancel.icon-cancel-circle{ng-click:"upload.abort(); action.uploading=false; action.dirty=true; $event.stopPropagation();"}
 
                   %span.recording{ng-show:'action.type=="say"'}
 
@@ -426,8 +435,10 @@
 
                 // starting flows
                 %span{ng-show:'action.type == "flow" || action.type == "trigger-flow"'}
-                  .start-flow
-                    [[action.flow.name]]
+                  .start-flow{ng-click:'$event.stopPropagation();'}
+                    .action-link{ng-click:'$event.stopPropagation();'}
+                      %a{href:'../[[action.flow.uuid]]'}
+                        [[action.flow.name]]
 
                 // webhooks
                 %span{ng-show:'action.type == "api"'}
@@ -440,8 +451,8 @@
                     [[action.name]]
 
 
-          .add.icon-plus-circle2{ng-click:'addAction(action_set);'}
-          .source{ng-attr-id:'[[action_set.uuid]]_source', drop-scope:'rules', ng-class:'{connected:action_set.destination}', ng-click:'clickActionSource(action_set); $event.stopPropagation()'}
+          .add.icon-plus-circle2{ng-show:'!hasEndUssd(action_set)', ng-click:'addAction(action_set);'}
+          .source{ng-show:'!hasEndUssd(action_set)', ng-attr-id:'[[action_set.uuid]]_source', drop-scope:'rules', ng-class:'{connected:action_set.destination}', ng-click:'clickActionSource(action_set); $event.stopPropagation()'}
             .recent-messages{ng-show:'action_set._showMessages'}
               .title
                 -trans "Recent Messages"
@@ -558,7 +569,9 @@
           .div
             .ruleset-body{ng-show:'ruleset.ruleset_type=="subflow"'}
               -trans "Run flow "
-              [[ruleset.config.flow.name]]
+              %span.flow-link{ng-click:'$event.stopPropagation();'}
+                %a{href:'../[[ruleset.config.flow.uuid]]'}
+                  [[ruleset.config.flow.name]]
 
           %table{style:'width:100%;', ruleset:"ruleset"}
             %tr.rules
@@ -589,5 +602,8 @@
 
 -block extra-style
   -compress css
-    %link{type:'text/less', rel:'stylesheet', href:'{{STATIC_URL}}less/flow_editor.less', media:'all'}
-    %link{type:'text/less', rel:'stylesheet', href:'{{STATIC_URL}}less/simulator.less', media:'all'}
+    {% lessblock %}
+      :plain
+        @import "flow_editor.less";
+        @import "simulator.less";
+    {% endlessblock %}

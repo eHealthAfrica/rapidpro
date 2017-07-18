@@ -2,12 +2,13 @@ from __future__ import unicode_literals
 
 import copy
 import json
+import regex
+import six
 
 from temba.flows.models import ContainsTest, StartsWithTest, ContainsAnyTest, RegexTest, ReplyAction
 from temba.flows.models import SayAction, SendAction, RuleSet
 from temba.utils.expressions import migrate_template
 from uuid import uuid4
-import regex
 
 
 def migrate_to_version_10(json_flow, flow):
@@ -40,7 +41,7 @@ def migrate_to_version_10(json_flow, flow):
         rules = []
         for status in ['success', 'failure']:
             # maintain our rule uuid for the success case
-            rule_uuid = old_rule_uuid if status == 'success' else unicode(uuid4())
+            rule_uuid = old_rule_uuid if status == 'success' else six.text_type(uuid4())
             new_rule = dict(test=dict(status=status, type='webhook_status'),
                             category={base_lang: status.capitalize()},
                             uuid=rule_uuid)
@@ -105,13 +106,13 @@ def migrate_export_to_version_9(exported_json, org, same_site=True):
     def get_uuid(id_map, obj_id):
         uuid = id_map.get(obj_id, None)
         if not uuid:
-            uuid = unicode(uuid4())
+            uuid = six.text_type(uuid4())
             id_map[obj_id] = uuid
         return uuid
 
     def replace_with_uuid(ele, manager, id_map, nested_name=None, obj=None, create_dict=False):
         # deal with case of having only a string and no name
-        if isinstance(ele, basestring) and create_dict:
+        if isinstance(ele, six.string_types) and create_dict:
             # variable references should just stay put
             if len(ele) > 0 and ele[0] == '@':
                 return ele
@@ -172,7 +173,7 @@ def migrate_export_to_version_9(exported_json, org, same_site=True):
     def remap_channel(ele):
         from temba.channels.models import Channel
         channel_id = ele.get('channel')
-        if channel_id:
+        if channel_id:  # pragma: needs cover
             channel = Channel.objects.filter(pk=channel_id).first()
             if channel:
                 ele['channel'] = channel.uuid
@@ -203,7 +204,7 @@ def migrate_export_to_version_9(exported_json, org, same_site=True):
             if metadata.get('id', None):
                 remap_flow(metadata)
             else:
-                del metadata['id']
+                del metadata['id']  # pragma: no cover
 
     for trigger in exported_json.get('triggers', []):
         if 'flow' in trigger:
@@ -241,13 +242,13 @@ def migrate_to_version_8(json_flow, flow=None):
     Migrates any expressions found in the flow definition to use the new @(...) syntax
     """
     def migrate_node(node):
-        if isinstance(node, basestring):
+        if isinstance(node, six.string_types):
             return migrate_template(node)
         if isinstance(node, list):
             for n in range(len(node)):
                 node[n] = migrate_node(node[n])
         if isinstance(node, dict):
-            for key, val in node.iteritems():
+            for key, val in six.iteritems(node):
                 node[key] = migrate_node(val)
         return node
 
@@ -296,7 +297,7 @@ def migrate_to_version_7(json_flow, flow=None):
 
         return definition
 
-    return json_flow
+    return json_flow  # pragma: needs cover
 
 
 def migrate_to_version_6(json_flow, flow=None):
@@ -312,7 +313,7 @@ def migrate_to_version_6(json_flow, flow=None):
     base_language = 'base'
 
     def convert_to_dict(d, key):
-        if key not in d:
+        if key not in d:  # pragma: needs cover
             raise ValueError("Missing '%s' in dict: %s" % (key, d))
 
         if not isinstance(d[key], dict):
@@ -392,12 +393,12 @@ def migrate_to_version_5(json_flow, flow=None):
             # all previous ruleset that require step should be wait_message
             if requires_step(operand):
                 # if we have an empty operand, go ahead and update it
-                if not operand:
+                if not operand:  # pragma: needs cover
                     ruleset['operand'] = '@step.value'
 
-                if response_type == 'K':
+                if response_type == 'K':  # pragma: no cover
                     ruleset['ruleset_type'] = RuleSet.TYPE_WAIT_DIGITS
-                elif response_type == 'M':
+                elif response_type == 'M':  # pragma: needs cover
                     ruleset['ruleset_type'] = RuleSet.TYPE_WAIT_DIGIT
                 elif response_type == 'R':
                     ruleset['ruleset_type'] = RuleSet.TYPE_WAIT_RECORDING
@@ -427,7 +428,7 @@ def migrate_to_version_5(json_flow, flow=None):
                         ruleset['ruleset_type'] = RuleSet.TYPE_EXPRESSION
                     elif operand.find('@contact.') == 0:
                         ruleset['ruleset_type'] = RuleSet.TYPE_CONTACT_FIELD
-                    elif operand.find('@flow.') == 0:
+                    elif operand.find('@flow.') == 0:  # pragma: needs cover
                         ruleset['ruleset_type'] = RuleSet.TYPE_FLOW_FIELD
 
                 # we used to stop at webhooks, now we need a new node
@@ -520,7 +521,7 @@ def insert_node(flow, node, _next):
     """ Inserts a node right before _next """
 
     def update_destination(node_to_update, uuid):
-        if node_to_update.get('actions', []):
+        if node_to_update.get('actions', []):  # pragma: needs cover
             node_to_update['destination'] = uuid
         else:
             for rule in node_to_update.get('rules', []):
@@ -528,7 +529,7 @@ def insert_node(flow, node, _next):
 
     # make sure we have a fresh uuid
     node['uuid'] = _next['uuid']
-    _next['uuid'] = unicode(uuid4())
+    _next['uuid'] = six.text_type(uuid4())
     update_destination(node, _next['uuid'])
 
     # bump everybody down
@@ -541,7 +542,7 @@ def insert_node(flow, node, _next):
             ruleset['y'] += 100
 
     # we are an actionset
-    if node.get('actions', []):
+    if node.get('actions', []):  # pragma: needs cover
         node.destination = _next.uuid
         flow['action_sets'].append(node)
 

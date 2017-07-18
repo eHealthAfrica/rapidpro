@@ -1,6 +1,6 @@
-[![Build Status](https://travis-ci.org/eHealthAfrica/rapidpro.svg?branch=master)](https://travis-ci.org/eHealthAfrica/rapidpro.svg)
+[![Coverage Status](https://coveralls.io/repos/github/rapidpro/rapidpro/badge.svg?branch=master)](https://coveralls.io/github/rapidpro/rapidpro?branch=master) 
 
-# RapidPro  
+# RapidPro     
 
 RapidPro is a hosted service for visually building interactive messaging applications.
 To learn more, please visit the project site at http://rapidpro.github.io/rapidpro.
@@ -17,25 +17,5 @@ In brief, the Affero license states you can use the RapidPro source for any proj
 
 RapidPro has dual copyright holders of UNICEF and Nyaruka.
 
-## Running with docker
-
-Install Requirements:
-
-- Docker
-- Docker Compose
-
-Run 
-
-```sh
-docker-compose build
-docker-compose up
-```
-
-Then visit localhost:5000 (linux) or run
-
-```sh
-docker-machine ip default
-```
- 
-on OS X to get the docker machine ip and visit <IP>:5000 in your browser.
+The software is provided under AGPL-3.0. Contributions to this project are accepted under the same license.
 

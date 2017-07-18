@@ -65,10 +65,25 @@
                       .glyph.icon-checkmark.success
                       -blocktrans with contacts_count=results.records
                         Added all contacts to the new
-                      %a{href:"{% url 'contacts.contact_filter' group.pk %}"}= group.name
+                      %a{href:"{% url 'contacts.contact_filter' group.uuid %}"}= group.name
                       group
 
-                  - if results.errors
+                    - if results.errors
+                      .import-result
+                        .well.well-small
+                          %strong
+                            -blocktrans
+                              Some rows were not imported
+                          %br
+                          %strong
+                            -blocktrans
+                              Errors description
+                          %br
+                            - for error_message in results.error_messages
+                              Row {{ error_message.line }}: {{ error_message.error }}
+                              %br
+
+                  - elif results.errors
                     .import-result
                       .glyph.icon-warning.warning
                       -blocktrans count results.errors as error_count
@@ -79,16 +94,20 @@
                     .import-result
                       .well.well-small
                         %strong
-                          -blocktrans count results.error_messages as error_count
-                            Error description
-                            -plural
-                              Errors description
+                          -blocktrans
+                            Errors description
+
                         %br
                           - for error_message in results.error_messages
                             Row {{ error_message.line }}: {{ error_message.error }}
                             %br
 
-                  - if not group.contacts.all
+                  - elif task.status == "SUCCESS" and not group.contacts.all
+                    %p
+                      Grouping..
+                      %img{src:"{{ STATIC_URL }}images/loader-circles.gif"}
+
+                  - elif not group.contacts.all
                     %p
                       -blocktrans
                         No contacts imported, please make sure your have a channel connected.

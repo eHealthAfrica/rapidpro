@@ -1,10 +1,10 @@
-from __future__ import unicode_literals
+from __future__ import print_function, unicode_literals
 
-from django.utils import timezone
-from djcelery_transactions import task
-from redis_cache import get_redis_connection
-from .models import Schedule
+from celery.task import task
+from django_redis import get_redis_connection
 from django.core.exceptions import ObjectDoesNotExist
+from django.utils import timezone
+from .models import Schedule
 
 
 @task(track_started=True, name='check_schedule_task')  # pragma: no cover
@@ -16,7 +16,7 @@ def check_schedule_task(sched_id=None):
 
     if sched_id:
         schedules = [Schedule.objects.get(pk=sched_id)]
-    else:
+    else:  # pragma: needs cover
         schedules = Schedule.objects.filter(status='S', is_active=True, next_fire__lt=timezone.now())
 
     r = get_redis_connection()
@@ -35,7 +35,7 @@ def check_schedule_task(sched_id=None):
                         broadcast = sched.get_broadcast()
                         trigger = sched.get_trigger()
 
-                        print "Firing %d" % sched.pk
+                        print("Firing %d" % sched.pk)
 
                         if broadcast:
                             broadcast.fire()
@@ -44,13 +44,13 @@ def check_schedule_task(sched_id=None):
                             trigger.fire()
 
                         else:
-                            print "Schedule had nothing interesting to fire"
+                            print("Schedule had nothing interesting to fire")
 
                         # if its one time, delete our schedule
                         if sched.repeat_period == 'O':
                             sched.reset()
 
-        except ObjectDoesNotExist:
+        except ObjectDoesNotExist:  # pragma: needs cover
             # this means the schedule already got fired, so perfectly ok, ignore
             pass
 

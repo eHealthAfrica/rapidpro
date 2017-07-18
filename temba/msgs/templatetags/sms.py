@@ -1,26 +1,28 @@
 from __future__ import unicode_literals
 
-import ttag
-
 from django import template
 from django.utils.safestring import mark_safe
 from temba.channels.models import ChannelEvent
-from ttag.helpers import AsTag
-
 
 register = template.Library()
+
+PLAYABLE_CONTENT_TYPES = {
+    'audio/wav',
+    'audio/x-wav',
+    'audio/vnd.wav',
+    'audio/ogg',
+    'audio/mp3',
+    'audio/m4a',
+    'video/mp4',
+    'video/webm'
+}
 
 
 @register.filter
 def as_icon(contact_event):
-
     icon = 'icon-bubble-dots-2 green'
     direction = getattr(contact_event, 'direction', 'O')
     msg_type = getattr(contact_event, 'msg_type', 'I')
-    media_type = getattr(contact_event, 'media', None)
-
-    if media_type and ':' in media_type:
-        media_type = media_type.split(':', 1)[0].split('/', 1)[0]
 
     if hasattr(contact_event, 'status'):
         status = contact_event.status
@@ -29,9 +31,7 @@ def as_icon(contact_event):
     else:
         status = None
 
-    if media_type == 'image':
-        icon = 'icon-photo_camera primary boost'
-    elif msg_type == 'V':
+    if msg_type == 'V':
         icon = 'icon-phone'
     elif direction == 'I':
         icon = 'icon-bubble-user primary'
@@ -55,7 +55,8 @@ def as_icon(contact_event):
     return mark_safe('<span class="glyph %s"></span>' % icon)
 
 
-class Render(AsTag):
+@register.tag(name='render')
+def render(parser, token):
     """
     A block tag that renders its contents to a context variable.
 
@@ -79,22 +80,55 @@ class Render(AsTag):
             <h1>{{ title }}</h1>
             {% block body %}{% endblock %}
         </body>
-
-    By default, the tag strips the output of leading and trailing white space.
-    To avoid this, use the ``no_strip`` argument::
-
-        {% render no_strip as target %} ... {% endrender %}
     """
-    no_strip = ttag.BooleanArg()
 
-    class Meta:
-        block = True
+    class RenderNode(template.Node):
+        def __init__(self, nodelist, as_var):
+            self.nodelist = nodelist
+            self.as_var = as_var
 
-    def as_value(self, data, context):
-        output = self.nodelist.render(context)
-        if 'no_strip' not in data:
-            output = output.strip()
-        return mark_safe(output)
+        def render(self, context):
+            output = self.nodelist.render(context)
+            context[self.as_var] = mark_safe(output.strip())
+            return ''
+
+    bits = token.split_contents()
+    if len(bits) != 3 or bits[1] != 'as':
+        raise ValueError("render tag should be followed by keyword as and the name of a context variable")
+    as_var = bits[2]
+
+    nodes = parser.parse(('endrender',))
+    parser.delete_first_token()
+    return RenderNode(nodes, as_var)
 
 
-register.tag(Render)
+@register.inclusion_tag('msgs/tags/attachment.haml')
+def attachment_button(attachment):
+    content_type, delim, url = attachment.partition(":")
+
+    # some OGG/OGA attachments may have wrong content type
+    if content_type == 'application/octet-stream' and (url.endswith('.ogg') or url.endswith('.oga')):  # pragma: no cover
+        content_type = 'audio/ogg'
+
+    category = content_type.split('/')[0] if '/' in content_type else content_type
+
+    if category == 'geo':
+        preview = url
+
+        (lat, lng) = url.split(',')
+        url = 'http://www.openstreetmap.org/?mlat=%(lat)s&mlon=%(lng)s#map=18/%(lat)s/%(lng)s' % {"lat": lat, "lng": lng}
+    else:
+        preview = url.rpartition('.')[2].upper()  # preview is the file extension in uppercase
+
+    return {
+        'content_type': content_type,
+        'category': category,
+        'preview': preview,
+        'url': url,
+        'is_playable': content_type in PLAYABLE_CONTENT_TYPES
+    }
+
+
+@register.inclusion_tag('msgs/tags/channel_log_link.haml')
+def channel_log_link(msg_or_call):
+    return {'log': msg_or_call.get_last_log()}

@@ -1,20 +1,14 @@
-from __future__ import absolute_import, unicode_literals
+from __future__ import unicode_literals
 
+import cProfile
 import pstats
 import traceback
-import copy
 
-from cStringIO import StringIO
 from django.conf import settings
-from django.db import transaction
 from django.utils import timezone, translation
+from io import StringIO
 from temba.orgs.models import Org
 from temba.contacts.models import Contact
-
-try:
-    import cProfile as profile
-except ImportError:
-    import profile
 
 
 class ExceptionMiddleware(object):
@@ -26,28 +20,42 @@ class ExceptionMiddleware(object):
         return None
 
 
+class OrgHeaderMiddleware(object):
+    """
+    Simple middleware to add a response header with the current org id, which can then be included in logs
+    """
+    def process_response(self, request, response):
+        # if we have a user, log our org id
+        if hasattr(request, 'user') and request.user.is_authenticated():
+            org = request.user.get_org()
+            if org:
+                response['X-Temba-Org'] = org.id
+        return response
+
+
 class BrandingMiddleware(object):
 
     @classmethod
     def get_branding_for_host(cls, host):
+
+        brand_key = host
+
         # ignore subdomains
-        if len(host.split('.')) > 2:
-            host = '.'.join(host.split('.')[-2:])
+        if len(brand_key.split('.')) > 2:  # pragma: needs cover
+            brand_key = '.'.join(brand_key.split('.')[-2:])
 
         # prune off the port
-        if ':' in host:
-            host = host[0:host.rindex(':')]
-
-        # our default branding
-        branding = settings.BRANDING.get(settings.DEFAULT_BRAND)
-        branding['host'] = settings.DEFAULT_BRAND
+        if ':' in brand_key:
+            brand_key = brand_key[0:brand_key.rindex(':')]
 
         # override with site specific branding if we have that
-        site_branding = settings.BRANDING.get(host, None)
-        if site_branding:
-            branding = copy.deepcopy(branding)
-            branding.update(site_branding)
-            branding['host'] = host
+        branding = settings.BRANDING.get(brand_key, None)
+
+        if branding:
+            branding['brand'] = brand_key
+        else:
+            # if that brand isn't configured, use the default
+            branding = settings.BRANDING.get(settings.DEFAULT_BRAND)
 
         return branding
 
@@ -58,7 +66,7 @@ class BrandingMiddleware(object):
         host = 'localhost'
         try:
             host = request.get_host()
-        except Exception:
+        except Exception:  # pragma: needs cover
             traceback.print_exc()
 
         request.branding = BrandingMiddleware.get_branding_for_host(host)
@@ -112,12 +120,15 @@ class OrgTimezoneMiddleware(object):
 
 
 class FlowSimulationMiddleware(object):
+    """
+    Resets Contact.set_simulation(False) for every request
+    """
     def process_request(self, request):
         Contact.set_simulation(False)
         return None
 
 
-class ProfilerMiddleware(object):
+class ProfilerMiddleware(object):  # pragma: no cover
     """
     Simple profile middleware to profile django views. To run it, add ?prof to
     the URL like this:
@@ -140,7 +151,7 @@ class ProfilerMiddleware(object):
 
     def process_view(self, request, callback, callback_args, callback_kwargs):
         if self.can(request):
-            self.profiler = profile.Profile()
+            self.profiler = cProfile.Profile()
             args = (request,) + callback_args
             return self.profiler.runcall(callback, *args, **callback_kwargs)
 
@@ -153,18 +164,3 @@ class ProfilerMiddleware(object):
             stats.print_stats(int(request.GET.get('count', 100)))
             response.content = '<pre>%s</pre>' % io.getvalue()
         return response
-
-
-class NonAtomicGetsMiddleware(object):
-    """
-    Django's non_atomic_requests decorator gives us no way of enabling/disabling transactions depending on the request
-    type. This middleware will make the current request non-atomic if an _non_atomic_gets attribute is set on the view
-    function, and if the request method is GET.
-    """
-    def process_view(self, request, view_func, view_args, view_kwargs):
-        if getattr(view_func, '_non_atomic_gets', False):
-            if request.method.lower() == 'get':
-                transaction.non_atomic_requests(view_func)
-            else:
-                view_func._non_atomic_requests = set()
-        return None

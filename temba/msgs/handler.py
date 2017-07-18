@@ -1,7 +1,12 @@
 from __future__ import unicode_literals
 
+import six
 
-class MessageHandler(object):
+from django.utils.module_loading import import_string
+
+
+@six.python_2_unicode_compatible
+class MessageHandler(object):  # pragma: no cover
     """
     Base class for message handlers.
     """
@@ -13,10 +18,9 @@ class MessageHandler(object):
         """
         Finds the message handler from the fully qualified name that is passed in
         """
-        from smartmin import class_from_string
-        return class_from_string(kls)
+        return import_string(kls)
 
-    def __unicode__(self):  # pragma: no cover
+    def __str__(self):  # pragma: no cover
         return self.name
 
     # incoming phases

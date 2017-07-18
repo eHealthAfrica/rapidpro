@@ -1,17 +1,17 @@
+from __future__ import unicode_literals
+
 import hashlib
 import json
+import requests
+import six
 import time
 
-import requests
 from django.conf import settings
 from django.db import models
-
-
 from smartmin.models import SmartModel
-from temba.api.models import get_api_user
 from temba.channels.models import Channel
 from temba.contacts.models import Contact, TEL_SCHEME
-from temba.orgs.models import Org, TRANSFERTO_ACCOUNT_LOGIN, TRANSFERTO_AIRTIME_API_TOKEN
+from temba.orgs.models import Org, TRANSFERTO_ACCOUNT_LOGIN, TRANSFERTO_AIRTIME_API_TOKEN, TRANSFERTO_ACCOUNT_CURRENCY
 from temba.utils import get_country_code_by_name
 
 
@@ -96,7 +96,7 @@ class AirtimeTransfer(SmartModel):
 
     @classmethod
     def trigger_airtime_event(cls, org, ruleset, contact, event):
-
+        from temba.api.models import get_api_user
         api_user = get_api_user()
 
         channel = None
@@ -120,8 +120,16 @@ class AirtimeTransfer(SmartModel):
                 airtime.status = AirtimeTransfer.FAILED
                 raise Exception(message)
 
+            config = org.config_json()
+            account_currency = config.get(TRANSFERTO_ACCOUNT_CURRENCY, '')
+            if not account_currency:
+                org.refresh_transferto_account_currency()
+                config = org.config_json()
+                account_currency = config.get(TRANSFERTO_ACCOUNT_CURRENCY, '')
+
             action = 'msisdn_info'
-            request_kwargs = dict(action=action, destination_msisdn=airtime.recipient)
+            request_kwargs = dict(action=action, destination_msisdn=airtime.recipient, currency=account_currency,
+                                  delivered_amount_info='1')
             response = airtime.get_transferto_response(**request_kwargs)
             content_json = AirtimeTransfer.parse_transferto_response(response.content)
 
@@ -142,15 +150,43 @@ class AirtimeTransfer(SmartModel):
             airtime.amount = amount
 
             product_list = content_json.get('product_list', [])
-
             if not isinstance(product_list, list):
                 product_list = [product_list]
 
-            targeted_prices = [float(i) for i in product_list if float(i) <= float(amount)]
+            skuid_list = content_json.get('skuid_list', [])
+            if not isinstance(skuid_list, list):
+                skuid_list = [skuid_list]
+
+            local_info_value_list = content_json.get('local_info_value_list', [])
+            if not isinstance(local_info_value_list, list):
+                local_info_value_list = [local_info_value_list]
+
+            product_local_value_map = dict(zip([float(elt) for elt in local_info_value_list], product_list))
+
+            product_skuid_value_map = dict(zip(product_list, skuid_list))
+
+            targeted_prices = [float(i) for i in local_info_value_list if float(i) <= float(amount)]
 
             denomination = None
+            skuid = content_json.get('skuid', None)
             if targeted_prices:
-                denomination = max(targeted_prices)
+                denomination_key = max(targeted_prices)
+                denomination = product_local_value_map.get(denomination_key, None)
+                skuid = product_skuid_value_map.get(denomination)
+
+            elif skuid:
+                minimum_local = content_json.get('open_range_minimum_amount_local_currency', 0)
+                maximum_local = content_json.get('open_range_maximum_amount_local_currency', 0)
+                minimum_acc_currency = content_json.get('open_range_minimum_amount_requested_currency', 0)
+                maximum_acc_currency = content_json.get('open_range_maximum_amount_requested_currency', 0)
+
+                local_interval = float(maximum_local) - float(minimum_local)
+                acc_currency_interval = float(maximum_acc_currency) - float(minimum_acc_currency)
+                amount_interval = float(amount) - float(minimum_local)
+                amount_interval_acc_currency = ((amount_interval * acc_currency_interval) / local_interval)
+                denomination = str(float(minimum_acc_currency) + amount_interval_acc_currency)
+
+            if denomination is not None:
                 airtime.denomination = denomination
 
             if float(amount) <= 0:
@@ -158,7 +194,7 @@ class AirtimeTransfer(SmartModel):
                 airtime.status = AirtimeTransfer.FAILED
                 raise Exception(message)
 
-            if denomination is None:
+            if denomination is None:  # pragma: needs cover
                 message = "No TransferTo denomination matched"
                 airtime.status = AirtimeTransfer.FAILED
                 raise Exception(message)
@@ -183,7 +219,12 @@ class AirtimeTransfer(SmartModel):
                                   reserved_id=transaction_id,
                                   msisdn=channel.address if channel else '',
                                   destination_msisdn=airtime.recipient,
+                                  currency=account_currency,
                                   product=airtime.denomination)
+
+            if skuid:
+                request_kwargs['skuid'] = skuid
+
             response = airtime.get_transferto_response(**request_kwargs)
             content_json = AirtimeTransfer.parse_transferto_response(response.content)
 
@@ -203,7 +244,7 @@ class AirtimeTransfer(SmartModel):
             traceback.print_exc()
 
             airtime.status = AirtimeTransfer.FAILED
-            message = "Error transferring airtime: %s" % unicode(e)
+            message = "Error transferring airtime: %s" % six.text_type(e)
 
         finally:
             airtime.message = message

@@ -1,4 +1,4 @@
-from __future__ import unicode_literals
+from __future__ import print_function, unicode_literals
 
 import time
 
@@ -10,7 +10,7 @@ from orgs.context_processors import user_group_perms_processor
 
 class FormaxMixin(object):
 
-    def derive_formax_sections(self, formax, context):
+    def derive_formax_sections(self, formax, context):  # pragma: needs cover
         return None
 
     def get_context_data(self, *args, **kwargs):
@@ -38,8 +38,8 @@ class Formax(object):
 
         start = time.time()
 
-        open = self.request.REQUEST.get('open', None)
-        if open == name:
+        open = self.request.GET.get('open', None)
+        if open == name:  # pragma: needs cover
             action = 'open'
 
         response = resolver.func(self.request, *resolver.args, **resolver.kwargs)
@@ -51,4 +51,4 @@ class Formax(object):
                                       icon=icon, action=action, button=button, nobutton=nobutton, dependents=dependents))
 
         if settings.DEBUG:
-            print "%s took: %f" % (url, time.time() - start)
+            print("%s took: %f" % (url, time.time() - start))

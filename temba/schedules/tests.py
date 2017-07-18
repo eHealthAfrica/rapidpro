@@ -2,6 +2,7 @@ from __future__ import unicode_literals
 
 import json
 import pytz
+import six
 import time
 
 from datetime import datetime, timedelta
@@ -125,8 +126,8 @@ class ScheduleTest(TembaTest):
         self.assertIn("This field is required", response.content)
 
         # finally create our message
-        post_data = dict(text="A scheduled message to Joe", omnibox="c-%s" % joe.uuid, sender=self.channel.pk, _format="json", schedule=True)
-        response = json.loads(self.client.post(reverse('msgs.broadcast_send'), post_data, follow=True).content)
+        post_data = dict(text="A scheduled message to Joe", omnibox="c-%s" % joe.uuid, sender=self.channel.pk, schedule=True)
+        response = json.loads(self.client.post(reverse('msgs.broadcast_send') + '?_format=json', post_data, follow=True).content)
         self.assertIn("/broadcast/schedule_read", response['redirect'])
 
         # fetch our formax page
@@ -137,7 +138,7 @@ class ScheduleTest(TembaTest):
         # update our message
         post_data = dict(message="An updated scheduled message", omnibox="c-%s" % joe.uuid)
         self.client.post(reverse('msgs.broadcast_update', args=[broadcast.pk]), post_data)
-        self.assertEquals("An updated scheduled message", Broadcast.objects.get(pk=broadcast.pk).text)
+        self.assertEqual(Broadcast.objects.get(id=broadcast.id).text, {'base': "An updated scheduled message"})
 
         # update the schedule
         post_data = dict(repeat_period='W', repeat_days=6, start='later', start_datetime_value=1)
@@ -221,10 +222,10 @@ class ScheduleTest(TembaTest):
 
     def test_calculating_next_fire(self):
 
-        self.org.timezone = 'US/Eastern'
+        self.org.timezone = pytz.timezone('US/Eastern')
         self.org.save()
 
-        tz = pytz.timezone(self.org.timezone)
+        tz = self.org.timezone
         eleven_fifteen_est = tz.localize(datetime(2013, 1, 3, hour=23, minute=15, second=0, microsecond=0))
 
         # Test date is 10:15am on a Thursday, Jan 3rd
@@ -238,13 +239,13 @@ class ScheduleTest(TembaTest):
         sched_date = tz.localize(datetime(2013, 1, 3, hour=23, minute=30, second=0, microsecond=0))
 
         schedule.update_schedule(sched_date)
-        self.assertEquals('2013-01-04 23:15:00-05:00', unicode(schedule.next_fire))
+        self.assertEquals('2013-01-04 23:15:00-05:00', six.text_type(schedule.next_fire))
 
     def test_update_near_day_boundary(self):
 
-        self.org.timezone = 'US/Eastern'
+        self.org.timezone = pytz.timezone('US/Eastern')
         self.org.save()
-        tz = pytz.timezone(self.org.timezone)
+        tz = self.org.timezone
 
         sched = self.create_schedule('D')
         Broadcast.create(self.org, self.admin, 'Message', [], schedule=sched)
@@ -267,7 +268,7 @@ class ScheduleTest(TembaTest):
         sched = Schedule.objects.get(pk=sched.pk)
 
         # 11pm in NY should be 4am UTC the next day
-        self.assertEquals('2050-01-04 04:00:00+00:00', unicode(sched.next_fire))
+        self.assertEquals('2050-01-04 04:00:00+00:00', six.text_type(sched.next_fire))
 
         # a time in the past
         start_date = datetime(2010, 1, 3, 23, 45, 0, 0)
@@ -282,4 +283,4 @@ class ScheduleTest(TembaTest):
         sched = Schedule.objects.get(pk=sched.pk)
 
         # next fire should fall at the right hour and minute
-        self.assertIn('04:45:00+00:00', unicode(sched.next_fire))
+        self.assertIn('04:45:00+00:00', six.text_type(sched.next_fire))

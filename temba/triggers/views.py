@@ -22,7 +22,7 @@ from temba.schedules.views import BaseScheduleForm
 from temba.channels.models import Channel
 from temba.flows.models import Flow
 from temba.msgs.views import ModalMixin
-from temba.utils import analytics
+from temba.utils import analytics, on_transaction_commit
 from temba.utils.views import BaseActionForm
 from .models import Trigger
 
@@ -39,22 +39,40 @@ class BaseTriggerForm(forms.ModelForm):
         self.fields['flow'].queryset = flows.order_by('flow_type', 'name')
 
     def clean_keyword(self):
-        keyword = self.cleaned_data.get('keyword', '').strip()
+        keyword = self.cleaned_data.get('keyword')
 
-        if keyword and not regex.match('^\w+$', keyword, flags=regex.UNICODE | regex.V0):
+        if keyword is None:  # pragma: no cover
+            keyword = ''
+
+        keyword = keyword.strip()
+
+        if keyword == '' or (keyword and not regex.match('^\w+$', keyword, flags=regex.UNICODE | regex.V0)):
             raise forms.ValidationError(_("Keywords must be a single word containing only letter and numbers"))
 
-        # make sure it is unique on this org
-        org = self.user.get_org()
-        if keyword and org:
-            existing = Trigger.objects.filter(org=org, keyword__iexact=keyword, is_archived=False, is_active=True)
-            if self.instance:
-                existing = existing.exclude(pk=self.instance.pk)
-
-            if existing:
-                raise forms.ValidationError(_("Another active trigger uses this keyword, keywords must be unique"))
-
         return keyword.lower()
+
+    def get_existing_triggers(self, cleaned_data):
+        keyword = cleaned_data.get('keyword')
+
+        if keyword is None:
+            keyword = ''
+
+        keyword = keyword.strip()
+        existing = Trigger.objects.none()
+        if keyword:
+            existing = Trigger.objects.filter(org=self.user.get_org(), is_archived=False, is_active=True,
+                                              keyword__iexact=keyword)
+
+        if self.instance:
+            existing = existing.exclude(pk=self.instance.pk)
+
+        return existing
+
+    def clean(self):
+        data = super(BaseTriggerForm, self).clean()
+        if self.get_existing_triggers(data):
+            raise forms.ValidationError(_("An active trigger already exists, triggers must be unique for each group"))
+        return data
 
     class Meta:
         model = Trigger
@@ -96,12 +114,6 @@ class GroupBasedTriggerForm(BaseTriggerForm):
 
         return existing
 
-    def clean(self):
-        data = super(GroupBasedTriggerForm, self).clean()
-        if self.get_existing_triggers(data):
-            raise forms.ValidationError(_("An active trigger already exists, triggers must be unique for each group"))
-        return data
-
     class Meta(BaseTriggerForm.Meta):
         fields = ('flow', 'groups')
 
@@ -119,12 +131,6 @@ class CatchAllTriggerForm(GroupBasedTriggerForm):
         existing = existing.filter(keyword=None, trigger_type=Trigger.TYPE_CATCH_ALL)
         return existing
 
-    def clean(self):
-        data = super(CatchAllTriggerForm, self).clean()
-        if self.get_existing_triggers(data):
-            raise forms.ValidationError(_("An active trigger already exists, triggers must be unique for each group"))
-        return data
-
     class Meta(BaseTriggerForm.Meta):
         fields = ('flow', 'groups')
 
@@ -133,34 +139,25 @@ class KeywordTriggerForm(GroupBasedTriggerForm):
     """
     Form for keyword triggers
     """
-    keyword = forms.CharField(max_length=16, required=True, label=_("Keyword"),
-                              help_text=_("The first word of the message text"))
-
     def __init__(self, user, *args, **kwargs):
         flows = Flow.objects.filter(org=user.get_org(), is_active=True, is_archived=False, flow_type__in=[Flow.FLOW, Flow.VOICE])
         super(KeywordTriggerForm, self).__init__(user, flows, *args, **kwargs)
 
     def get_existing_triggers(self, cleaned_data):
-        keyword = cleaned_data.get('keyword', '').strip()
+        keyword = cleaned_data.get('keyword')
+
+        if keyword is None:
+            keyword = ''
+
+        keyword = keyword.strip()
+
         existing = super(KeywordTriggerForm, self).get_existing_triggers(cleaned_data)
         if keyword:
             existing = existing.filter(keyword__iexact=keyword)
         return existing
 
-    def clean_keyword(self):
-        keyword = self.cleaned_data.get('keyword', '').strip()
-        if keyword and not regex.match('^\w+$', keyword, flags=regex.UNICODE | regex.V0):
-            raise forms.ValidationError(_("Keywords must be a single word containing only letter and numbers"))
-        return keyword.lower()
-
-    def clean(self):
-        data = super(KeywordTriggerForm, self).clean()
-        if self.get_existing_triggers(data):
-            raise forms.ValidationError(_("An active trigger uses this keyword in some groups, keywords must be unique for each contact group"))
-        return data
-
     class Meta(BaseTriggerForm.Meta):
-        fields = ('keyword', 'flow', 'groups')
+        fields = ('keyword', 'match_type', 'flow', 'groups')
 
 
 class RegisterTriggerForm(BaseTriggerForm):
@@ -169,7 +166,7 @@ class RegisterTriggerForm(BaseTriggerForm):
     """
     class AddNewGroupChoiceField(forms.ModelChoiceField):
         def clean(self, value):
-            if value.startswith("[_NEW_]"):
+            if value.startswith("[_NEW_]"):  # pragma: needs cover
                 value = value[7:]
 
                 # we must get groups for this org only
@@ -220,7 +217,11 @@ class ScheduleTriggerForm(BaseScheduleForm, forms.ModelForm):
         super(ScheduleTriggerForm, self).__init__(*args, **kwargs)
         self.user = user
         self.fields['omnibox'].set_user(user)
-        self.fields['flow'].queryset = Flow.objects.filter(org=self.user.get_org(), is_active=True, is_archived=False).exclude(flow_type=Flow.MESSAGE)
+
+        flows = Flow.objects.filter(org=self.user.get_org(), is_active=True, is_archived=False,
+                                    flow_type__in=[Flow.FLOW, Flow.VOICE])
+
+        self.fields['flow'].queryset = flows
 
     def clean(self):
         data = super(ScheduleTriggerForm, self).clean()
@@ -253,7 +254,7 @@ class FollowTriggerForm(BaseTriggerForm):
     """
     channel = forms.ModelChoiceField(Channel.objects.filter(pk__lt=0), label=_("Channel"), required=True)
 
-    def __init__(self, user, *args, **kwargs):
+    def __init__(self, user, *args, **kwargs):  # pragma: needs cover
         flows = Flow.objects.filter(org=user.get_org(), is_active=True, is_archived=False, flow_type__in=[Flow.FLOW])
         super(FollowTriggerForm, self).__init__(user, flows, *args, **kwargs)
 
@@ -277,8 +278,91 @@ class NewConversationTriggerForm(BaseTriggerForm):
         self.fields['channel'].queryset = Channel.objects.filter(is_active=True, org=self.user.get_org(),
                                                                  scheme__in=ContactURN.SCHEMES_SUPPORTING_NEW_CONVERSATION)
 
+    def clean_channel(self):
+        channel = self.cleaned_data['channel']
+        existing = Trigger.objects.filter(org=self.user.get_org(), is_active=True, is_archived=False,
+                                          trigger_type=Trigger.TYPE_NEW_CONVERSATION, channel=channel)
+        if self.instance:
+            existing.exclude(id=self.instance.id)
+
+        if existing:
+            raise forms.ValidationError(_("Trigger with this Channel already exists."))
+
+        return self.cleaned_data['channel']
+
     class Meta(BaseTriggerForm.Meta):
         fields = ('channel', 'flow')
+
+
+class ReferralTriggerForm(BaseTriggerForm):
+    """
+    Form for referral triggers
+    """
+    channel = forms.ModelChoiceField(Channel.objects.filter(pk__lt=0), label=_("Channel"), required=False,
+                                     help_text=_("The channel to apply this trigger to, leave blank for all Facebook channels"))
+    referrer_id = forms.CharField(max_length=255, required=True, label=_("Referrer Id"),
+                                  help_text=_("The referrer id that will trigger us"))
+
+    def __init__(self, user, *args, **kwargs):
+        flows = Flow.objects.filter(org=user.get_org(), is_active=True, is_archived=False, flow_type__in=[Flow.FLOW, Flow.VOICE])
+        super(ReferralTriggerForm, self).__init__(user, flows, *args, **kwargs)
+
+        self.fields['channel'].queryset = Channel.objects.filter(is_active=True, org=self.user.get_org(),
+                                                                 scheme__in=ContactURN.SCHEMES_SUPPORTING_REFERRALS)
+
+    def get_existing_triggers(self, cleaned_data):
+        ref_id = cleaned_data.get('referrer_id', '').strip()
+        channel = cleaned_data.get('channel')
+        existing = Trigger.objects.filter(org=self.user.get_org(), trigger_type=Trigger.TYPE_REFERRAL,
+                                          is_active=True, is_archived=False, referrer_id=ref_id)
+        if self.instance:
+            existing = existing.exclude(pk=self.instance.pk)
+
+        if channel:
+            existing = existing.filter(channel=channel)
+
+        return existing
+
+    class Meta(BaseTriggerForm.Meta):
+        fields = ('channel', 'referrer_id', 'flow')
+
+
+class UssdTriggerForm(BaseTriggerForm):
+    """
+    Form for USSD triggers
+    """
+    keyword = forms.CharField(max_length=32, required=True, label=_("USSD Code"),
+                              help_text=_("USSD code to dial (eg: *111#)"))
+    channel = forms.ModelChoiceField(Channel.objects.filter(pk__lt=0), label=_("USSD Channel"), required=True)
+
+    def __init__(self, user, *args, **kwargs):
+        flows = Flow.objects.filter(org=user.get_org(), is_active=True, is_archived=False, flow_type__in=[Flow.USSD])
+        super(UssdTriggerForm, self).__init__(user, flows, *args, **kwargs)
+
+        self.fields['channel'].queryset = Channel.objects.filter(is_active=True, org=self.user.get_org(),
+                                                                 channel_type__in=Channel.USSD_CHANNELS)
+
+    def clean_keyword(self):
+        keyword = self.cleaned_data.get('keyword', '').strip()
+
+        if keyword == '' or (keyword and not regex.match('^[\d\*\#]+$', keyword, flags=regex.UNICODE)):
+            raise forms.ValidationError(_("USSD code must contain only *,# and numbers"))
+
+        return keyword
+
+    def get_existing_triggers(self, cleaned_data):
+        keyword = cleaned_data.get('keyword', '').strip()
+        existing = Trigger.objects.filter(org=self.user.get_org(), keyword__iexact=keyword, is_archived=False,
+                                          is_active=True)
+        existing = existing.filter(channel=cleaned_data['channel'])
+
+        if self.instance:
+            existing = existing.exclude(id=self.instance.id)
+
+        return existing
+
+    class Meta(BaseTriggerForm.Meta):
+        fields = ('keyword', 'channel', 'flow')
 
 
 class TriggerActionForm(BaseActionForm):
@@ -311,12 +395,13 @@ class TriggerActionMixin(SmartListView):
 class TriggerCRUDL(SmartCRUDL):
     model = Trigger
     actions = ('list', 'create', 'update', 'archived',
-               'keyword', 'register', 'schedule', 'inbound_call', 'missed_call', 'catchall', 'follow', 'new_conversation')
+               'keyword', 'register', 'schedule', 'inbound_call', 'missed_call', 'catchall', 'follow',
+               'new_conversation', 'referral', 'ussd')
 
     class OrgMixin(OrgPermsMixin):
         def derive_queryset(self, *args, **kwargs):
             queryset = super(TriggerCRUDL.OrgMixin, self).derive_queryset(*args, **kwargs)
-            if not self.request.user.is_authenticated():
+            if not self.request.user.is_authenticated():  # pragma: needs cover
                 return queryset.exclude(pk__gt=0)
             else:
                 return queryset.filter(org=self.request.user.get_org())
@@ -332,19 +417,20 @@ class TriggerCRUDL(SmartCRUDL):
             add_section('trigger-keyword', 'triggers.trigger_keyword', 'icon-tree')
             add_section('trigger-register', 'triggers.trigger_register', 'icon-users-2')
             add_section('trigger-schedule', 'triggers.trigger_schedule', 'icon-clock')
-
-            # if we can answer calls, show the inbound trigger option
-            if self.org.get_schemes(Channel.ROLE_ANSWER):
-                add_section('trigger-inboundcall', 'triggers.trigger_inbound_call', 'icon-phone2')
-
+            add_section('trigger-inboundcall', 'triggers.trigger_inbound_call', 'icon-phone2')
             add_section('trigger-missedcall', 'triggers.trigger_missed_call', 'icon-phone')
 
-            if ContactURN.SCHEMES_SUPPORTING_FOLLOW.intersection(org_schemes):
+            if ContactURN.SCHEMES_SUPPORTING_FOLLOW.intersection(org_schemes):  # pragma: needs cover
                 add_section('trigger-follow', 'triggers.trigger_follow', 'icon-user-restore')
 
             if ContactURN.SCHEMES_SUPPORTING_NEW_CONVERSATION.intersection(org_schemes):
                 add_section('trigger-new-conversation', 'triggers.trigger_new_conversation', 'icon-bubbles-2')
 
+            if ContactURN.SCHEMES_SUPPORTING_REFERRALS.intersection(org_schemes):
+                add_section('trigger-referral', 'triggers.trigger_referral', 'icon-exit')
+
+            if self.org.get_ussd_channels():
+                add_section('trigger-ussd', 'triggers.trigger_ussd', 'icon-mobile')
             add_section('trigger-catchall', 'triggers.trigger_catchall', 'icon-bubble')
 
     class Update(ModalMixin, OrgMixin, SmartUpdateView):
@@ -355,7 +441,9 @@ class TriggerCRUDL(SmartCRUDL):
                          Trigger.TYPE_INBOUND_CALL: InboundCallTriggerForm,
                          Trigger.TYPE_CATCH_ALL: CatchAllTriggerForm,
                          Trigger.TYPE_FOLLOW: FollowTriggerForm,
-                         Trigger.TYPE_NEW_CONVERSATION: NewConversationTriggerForm}
+                         Trigger.TYPE_NEW_CONVERSATION: NewConversationTriggerForm,
+                         Trigger.TYPE_USSD_PULL: UssdTriggerForm,
+                         Trigger.TYPE_REFERRAL: ReferralTriggerForm}
 
         def get_form_class(self):
             trigger_type = self.object.trigger_type
@@ -370,7 +458,7 @@ class TriggerCRUDL(SmartCRUDL):
             return context
 
         def form_invalid(self, form):
-            if '_format' in self.request.REQUEST and self.request.REQUEST['_format'] == 'json':
+            if '_format' in self.request.GET and self.request.GET['_format'] == 'json':  # pragma: needs cover
                 return HttpResponse(json.dumps(dict(status="error", errors=form.errors)), content_type='application/json', status=400)
             else:
                 return super(TriggerCRUDL.Update, self).form_invalid(form)
@@ -393,10 +481,6 @@ class TriggerCRUDL(SmartCRUDL):
         def form_valid(self, form):
             trigger = self.object
             trigger_type = trigger.trigger_type
-
-            if trigger_type == Trigger.TYPE_MISSED_CALL or trigger_type == Trigger.TYPE_CATCH_ALL:
-                trigger.flow = form.cleaned_data['flow']
-                trigger.save()
 
             if trigger_type == Trigger.TYPE_SCHEDULE:
                 schedule = trigger.schedule
@@ -447,7 +531,7 @@ class TriggerCRUDL(SmartCRUDL):
                 # fire our trigger schedule if necessary
                 if trigger.schedule.is_expired():
                     from temba.schedules.tasks import check_schedule_task
-                    check_schedule_task.delay(trigger.schedule.pk)
+                    on_transaction_commit(lambda: check_schedule_task.delay(trigger.schedule.pk))
 
             response = super(TriggerCRUDL.Update, self).form_valid(form)
             response['REDIRECT'] = self.get_success_url()
@@ -457,6 +541,7 @@ class TriggerCRUDL(SmartCRUDL):
         fields = ('name', 'modified_on')
         default_template = 'triggers/trigger_list.html'
         default_order = ('-last_triggered', '-modified_on')
+        search_fields = ('keyword__icontains', 'flow__name__icontains', 'channel__name__icontains')
 
         def get_context_data(self, **kwargs):
             context = super(TriggerCRUDL.BaseList, self).get_context_data(**kwargs)
@@ -480,12 +565,13 @@ class TriggerCRUDL(SmartCRUDL):
         title = _("Triggers")
 
         def pre_process(self, request, *args, **kwargs):
-            # if they have no triggers, send them to create page
-            if super(TriggerCRUDL.List, self).get_queryset(*args, **kwargs).count() == 0:
+            # if they have no triggers and no search performed, send them to create page
+            obj_count = super(TriggerCRUDL.List, self).get_queryset(*args, **kwargs).count()
+            if obj_count == 0 and not request.GET.get('search', ''):
                 return HttpResponseRedirect(reverse("triggers.trigger_create"))
             return super(TriggerCRUDL.List, self).pre_process(request, *args, **kwargs)
 
-        def lookup_field_link(self, context, field, obj):
+        def lookup_field_link(self, context, field, obj):  # pragma: needs cover
             if field == 'flow' and obj.flow:
                 return reverse('flows.flow_editor', args=[obj.flow.uuid])
             return super(TriggerCRUDL.List, self).lookup_field_link(context, field, obj)
@@ -557,6 +643,28 @@ class TriggerCRUDL(SmartCRUDL):
             kwargs['auto_id'] = "id_register_%s"
             return kwargs
 
+    class Referral(CreateTrigger):
+        form_class = ReferralTriggerForm
+        title = _("Create Referral Trigger")
+
+        def get_form_kwargs(self):
+            kwargs = super(TriggerCRUDL.Referral, self).get_form_kwargs()
+            kwargs['auto_id'] = "id_referral_%s"
+            return kwargs
+
+        def form_valid(self, form):
+            user = self.request.user
+            org = user.get_org()
+
+            self.object = Trigger.create(org, user, Trigger.TYPE_REFERRAL, form.cleaned_data['flow'],
+                                         form.cleaned_data['channel'], referrer_id=form.cleaned_data['referrer_id'])
+
+            analytics.track(self.request.user.username, 'temba.trigger_created_referral')
+
+            response = self.render_to_response(self.get_context_data(form=form))
+            response['REDIRECT'] = self.get_success_url()
+            return response
+
     class Schedule(CreateTrigger):
         form_class = ScheduleTriggerForm
         title = _("Create Schedule")
@@ -568,7 +676,7 @@ class TriggerCRUDL(SmartCRUDL):
             return context
 
         def form_invalid(self, form):
-            if '_format' in self.request.REQUEST and self.request.REQUEST['_format'] == 'json':
+            if '_format' in self.request.GET and self.request.GET['_format'] == 'json':  # pragma: needs cover
                 return HttpResponse(json.dumps(dict(status="error", errors=form.errors)), content_type='application/json', status=400)
             else:
                 return super(TriggerCRUDL.Schedule, self).form_invalid(form)
@@ -635,7 +743,7 @@ class TriggerCRUDL(SmartCRUDL):
             # fire our trigger schedule if necessary
             if obj.schedule.is_expired():
                 from temba.schedules.tasks import check_schedule_task
-                check_schedule_task.delay(obj.schedule.pk)
+                on_transaction_commit(lambda: check_schedule_task.delay(obj.schedule.pk))
 
             return obj
 
@@ -721,7 +829,7 @@ class TriggerCRUDL(SmartCRUDL):
             response['REDIRECT'] = self.get_success_url()
             return response
 
-    class Follow(CreateTrigger):
+    class Follow(CreateTrigger):  # pragma: needs cover
         form_class = FollowTriggerForm
 
         def get_form_kwargs(self):
@@ -733,9 +841,8 @@ class TriggerCRUDL(SmartCRUDL):
             user = self.request.user
             org = user.get_org()
 
-            trigger = Trigger.objects.create(created_by=user, modified_by=user, org=org, trigger_type=Trigger.TYPE_FOLLOW,
-                                             flow=form.cleaned_data['flow'], channel=form.cleaned_data['channel'])
-            trigger.archive_conflicts(user)
+            self.object = Trigger.create(org, user, Trigger.TYPE_FOLLOW, form.cleaned_data['flow'],
+                                         form.cleaned_data['channel'])
 
             analytics.track(self.request.user.username, 'temba.trigger_created_follow')
 
@@ -755,13 +862,32 @@ class TriggerCRUDL(SmartCRUDL):
             user = self.request.user
             org = user.get_org()
 
-            trigger = Trigger.objects.create(created_by=user, modified_by=user, org=org, trigger_type=Trigger.TYPE_NEW_CONVERSATION,
-                                             flow=form.cleaned_data['flow'], channel=form.cleaned_data['channel'])
-            trigger.archive_conflicts(user)
-            trigger.channel.set_fb_call_to_action_payload(Channel.GET_STARTED)
+            self.object = Trigger.create(org, user, Trigger.TYPE_NEW_CONVERSATION, form.cleaned_data['flow'],
+                                         form.cleaned_data['channel'])
 
             analytics.track(self.request.user.username, 'temba.trigger_created_new_conversation')
 
             response = self.render_to_response(self.get_context_data(form=form))
             response['REDIRECT'] = self.get_success_url()
             return response
+
+    class Ussd(CreateTrigger):
+        form_class = UssdTriggerForm
+
+        def form_valid(self, form):
+            user = self.request.user
+            org = user.get_org()
+
+            self.object = Trigger.create(org, user, Trigger.TYPE_USSD_PULL, form.cleaned_data['flow'],
+                                         form.cleaned_data['channel'], keyword=form.cleaned_data['keyword'])
+
+            analytics.track(self.request.user.username, 'temba.trigger_created_ussd')
+
+            response = self.render_to_response(self.get_context_data(form=form))
+            response['REDIRECT'] = self.get_success_url()
+            return response
+
+        def get_form_kwargs(self):
+            kwargs = super(TriggerCRUDL.Ussd, self).get_form_kwargs()
+            kwargs['auto_id'] = "id_ussd_%s"
+            return kwargs
