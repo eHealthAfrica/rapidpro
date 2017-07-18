@@ -34,8 +34,8 @@ services:
   nginx:
     image: nginx:alpine
     volumes:
-      - static_content:/var/www/static/:ro
-      - ./conf/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - static_content:/var/www/static/:rw
+      - ./conf/nginx.conf:/etc/nginx/conf.d/default.conf:rw
     links:
       - rapidpro
     ports:

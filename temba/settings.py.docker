@@ -20,6 +20,14 @@ HOSTNAME = 'rapidpro.ehealth.org.ng'
 TEMBA_HOST = 'rapidpro.ehealth.org.ng'
 ALLOWED_HOSTS = ['*']
 
+STATICFILES_DIRS = (os.path.join(PROJECT_DIR, '../static'), os.path.join(PROJECT_DIR, '../media'), )
+STATIC_ROOT = os.environ.get('STATIC_DIR', os.path.join(PROJECT_DIR, '../sitestatic'))
+COMPRESS_ROOT = os.environ.get('STATIC_DIR', os.path.join(PROJECT_DIR, '../sitestatic'))
+STATIC_URL = '/static/'
+MEDIA_ROOT = os.path.join(PROJECT_DIR, '../media')
+MEDIA_URL = "/media/"
+
+
 #-----------------------------------------------------------------------------------
 # Redis & Cache Configuration (we expect a Redis instance on localhost)
 #-----------------------------------------------------------------------------------
@@ -33,6 +41,14 @@ CACHES = {
         }
     }
 }
+
+BROKER_URL = 'redis://%s:%d/%d' % (REDIS_HOST, REDIS_PORT, REDIS_DB)
+
+# by default, celery doesn't have any timeout on our redis connections, this fixes that
+BROKER_TRANSPORT_OPTIONS = {'socket_timeout': 5}
+
+CELERY_RESULT_BACKEND = BROKER_URL
+
 #-----------------------------------------------------------------------------------
 # Need a PostgreSQL database on localhost with postgis extension installed.
 #-----------------------------------------------------------------------------------
