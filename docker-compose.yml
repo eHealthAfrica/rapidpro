@@ -18,7 +18,7 @@ services:
         RDS_USERNAME: "postgres"
         RDS_PASSWORD: ""
         RDS_PORT: ""
-        RDS_DB_NAME: "rapidpro"
+        RDS_DB_NAME: "postgres"
         REDISHOST: "rapidproredis"
         STATIC_DIR: "/var/www/static/"
     command: start

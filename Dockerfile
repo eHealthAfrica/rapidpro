@@ -27,6 +27,9 @@ RUN pip install -r /tmp/requirements_requires.txt
 ADD pip-freeze.txt /tmp/requirements.txt
 RUN pip install -r /tmp/requirements.txt
 
+ADD conf/pip-docker.txt /tmp/requirements_docker.txt
+RUN pip install -r /tmp/requirements_docker.txt
+
 WORKDIR /code
 
 COPY ./ /code/
