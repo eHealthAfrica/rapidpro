@@ -23,22 +23,49 @@ The software is provided under AGPL-3.0. Contributions to this project are accep
 
 To run current local copy on a docker container
 
-1. Build docker Image Run `docker-compose build`
-    In case you experience a timeout error during docker build step `RUN pip install -r /tmp/requirements_docker.txt` or similar `pip` command, you can always add the parameter/switch `--default-timeout=10000` to the `RUN pip install` command in the [Dockerfile](https://docs.docker.com/engine/reference/builder/) file and rerun the `docker-compose` build  command.
 
-    You can concurrently download the needed docker images by running `docker pull` command for the required services
-    `docker pull mdillon/postgis` for the rapidpro  postgres database service
-    `docker pull rapidproredis` for the rapidpro repis cache service
-    `docker pull nginx:alpine` for the rapidpro nginx service
+##### Build/Pull docker images
+
+To build the local local image run bash command
+
+```bash
+$docker-compose build
+```
+
+
+This builds the local docker image for [rapidpro](http://rapidpro.github.io/rapidpro/docs/development) on your local development machine using the [Dockerfile](https://docs.docker.com/engine/reference/builder/).
     
+ *In case you experience a timeout error when running the above docker build command at this step `RUN pip install -r /tmp/requirements_docker.txt` or similar `pip` command, you can always add the parameter/switch `--default-timeout=10000` to the `RUN pip install` command in the [Dockerfile](https://docs.docker.com/engine/reference/builder/) file and rerun the `docker-compose` build  command.*
+
+
+You can concurrently download the needed docker images by running `docker pull` command for the required services in another terminal.
     
+```bash
 
-2. Run needed service, Before starting the rapidpro docker container, Make sure the required services are up, add the `-d` switch to run in background
-    `docker-compose up -d nginx` for start the nginx service
-    `docker-compose up -d rapidproredis` for start the rapidproredis service
-    `docker-compose up -d rapidprodb` for start the rapidprodb service
+$docker pull mdillon/postgis #for the rapidpro  postgres database service
+$docker pull rapidproredis   #for the rapidpro repis cache service
+$docker pull nginx:alpine    #for the rapidpro nginx service
 
-3. Configure to communicate with local eHA [SET](https://github.com/eHealthAfrica/set) application instance.
+```    
+
+##### Run docker images
+
+
+To ensure the required services are up and running, run the required services, before starting the rapidpro docker [container](https://www.docker.com/what-container), make sure the required services are up, the `-d` argument to run in background.
+
+
+ ```bash
+
+$docker-compose up -d nginx            #for start the nginx service
+$docker-compose up -d rapidproredis    #for start the rapidproredis service
+$docker-compose up -d rapidprodb       #for start the rapidprodb service
+
+ ```
+
+##### Configure docker / SET communication
+
+
+* Configure to communicate with local eHA [SET](https://github.com/eHealthAfrica/set) application instance.
     When running local [SET](https://github.com/eHealthAfrica/set) instance, in other to enable to enable the rapidpro docker instance to be able to communicate with the local [SET](https://github.com/eHealthAfrica/set) instance, you have to enable a loopback on your network interface. 
 
     To acheive this, before starting up the `rapidpro` docker instance run the bash script `sudo ifconfig lo0 alias 192.168.10.10` on your local machine.
@@ -48,9 +75,7 @@ To run current local copy on a docker container
     extra_hosts:
         - "set.local:192.168.10.10"
 
+*To know how to configure an external endpoint or [channel](http://docs.rapidpro.io/#topic_2) on rapidpro, refer to the rapidpro [manual](http://docs.rapidpro.io/#topic_2)*
     
 
-    
-    
-
-
+ After configuring SET as a channel on rapidpro, try checking everything is fine by [sending a message](http://docs.rapidpro.io/#topic_3) on your running rapidpro instance.
