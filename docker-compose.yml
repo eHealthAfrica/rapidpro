@@ -30,8 +30,6 @@ services:
       - rapidproredis
     volumes:
       - static_content:/var/www/static/:rw
-    extra_hosts:
-      - "set.local:192.168.10.10"
 
   nginx:
     image: nginx:alpine
@@ -42,5 +40,3 @@ services:
       - rapidpro
     ports:
       - "80:80"
-    extra_hosts:
-      - "set.local:192.168.10.10"
